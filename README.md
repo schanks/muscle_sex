@@ -2,7 +2,7 @@
 
 This repository contains scripts to generate manuscript figures.
 
-[bulk](https://github.com/schanks/muscle_sex/bulk/README.md): Sex differences in bulk gene expression
+[bulk](https://github.com/schanks/muscle_sex/blob/main/bulk/README.md): Sex differences in bulk gene expression
 
 [composition](https://github.com/schanks/muscle_sex/composition/README.md): Sex differences in cell type composition
 
