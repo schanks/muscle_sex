@@ -1,4 +1,4 @@
-# Sex differences in cell type composition
+# Sex differences in cell type level gene expression
 
 ## Figures
 figure2.R: Figure 2. Sex differences in cell type-specific gene expression in human skeletal muscle

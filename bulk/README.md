@@ -1,4 +1,4 @@
-# Sex differences in cell type composition
+# Sex differences in bulk level gene expression
 
 ## Figures
 figure3.R: Figure 3. Comparison of sex differences in gene expression from bulk vs. single nucleus RNA-seq
