@@ -10,5 +10,5 @@ This repository contains scripts to generate manuscript figures.
 
 [snATAC](https://github.com/schanks/muscle_sex/snATAC/README.md): Sex differences in cell type specific chromatin accessibility (snATAC-seq)
 
-[snRNA](https://github.com/schanks/muscle_sex/snRNA/README.md): Sex differences in cell type specific gene expression (snRNA-seq)
+[snRNA](https://github.com/schanks/muscle_sex/blob/main/snRNA/README.md): Sex differences in cell type specific gene expression (snRNA-seq)
 
