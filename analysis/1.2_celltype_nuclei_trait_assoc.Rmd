@@ -1,0 +1,601 @@
+---
+title: "Negative binomial regression using nuclei count data, per cell type, for RNA and/or ATAC, invnorm traits- with log(total nuclei) offset."
+output:
+  workflowr::wflow_html:
+    toc: true
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, dev=c('png'), include=F}
+knitr::opts_chunk$set(dev = c('png'))
+knitr::opts_chunk$set(autodep = TRUE)
+
+```
+
+
+```{r include=F}
+.libPaths("/net/snowwhite/home/aujackso/R/x86_64-pc-linux-gnu-library/4.0");
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(broom)
+library(MASS)
+options(scipen=1, digits=5)
+options(nwarnings=10000)
+library(grid)
+library(gridExtra)
+library(RColorBrewer)
+library(corrr)
+library(gplots) #library with heatmap.2
+library(kableExtra)  
+
+invnorm = function(x, seed) {
+  set.seed(seed)
+  qnorm((rank(x, na.last="keep", ties.method="random") - 0.5) / sum(!is.na(x)))
+}
+
+```
+
+
+```{r functions, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+
+run_nb_invnorm<-function(ds0,trt,trt2,cell) {
+	print(paste0(trt," ",cell))
+	temp<- ds0 %>% dplyr::select(-labelcode) 
+	tot.nuc<-rowSums(temp, na.rm=T)
+	labelcode<-ds0$labelcode
+	temp.totnuc<-cbind.data.frame(labelcode, tot.nuc)
+	temp.phen<-merge(temp.totnuc, trait.ds, by="labelcode")
+	temp.phen<-dplyr::slice(temp.phen, match(ds0$labelcode, labelcode)) 
+	if (trt == "SEX") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, age_biopsy, area_name, batch, trt, tot.nuc) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   fstr<-paste0("nuc ~ agescale + BATCH + area_name + x + offset(log(tot.nuc))") 
+	}   
+	if (trt == "age_biopsy") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, area_name, batch, trt, tot.nuc) %>%
+		mutate(BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("nuc ~ SEX + BATCH + area_name + x + offset(log(tot.nuc))") 
+	}   
+	if (trt == "T2D") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, all_of(trt), tot.nuc) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   fstr<-paste0("nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + x + offset(log(tot.nuc))") 
+	}   
+	if (!(trt %in% c("SEX", "age_biopsy", "T2D"))) {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc) %>%
+		dplyr::filter(complete.cases(.)) %>% 
+		dplyr::mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("nuc ~ agescale + SEX + BATCH + area_name + x + offset(log(tot.nuc))") 
+	   phen$agescale=scale(phen$age_biopsy)	
+	}
+	# only use samples with cell type data
+	ds<-ds0 %>% dplyr::select(labelcode,paste0(cell)) %>% filter(complete.cases(.))
+	names(ds)<-c("labelcode", "nuc")
+	
+	# ensure count samples are same as complete pheno samples 
+	use<-intersect(ds$labelcode, phen$labelcode)
+	
+	ds<- dplyr::slice(ds, match(use, labelcode)) 
+	phen<-dplyr::slice(phen, match(use, labelcode))
+	df<- merge(ds, phen, by="labelcode")
+	
+	nb<-glm.nb(as.formula(fstr), data=df)
+	#pois<-glm(as.formula(fstr), family="poisson", data=df)
+	#ll<-pchisq(2*(logLik(nb) - logLik(pois)), df=1, lower.tail=FALSE)
+	#print(ll)
+	res<-tidy(nb) %>% filter(substr(term,1,1)=="x")
+	# res is for the last variable in the design
+	res$celltype=cell
+	res$trait=trt2
+	res$n=nrow(df)
+	return(res)
+}
+
+#adjusting for log(S_Insu)
+run_nb_invnorm_ins<-function(ds0,trt,trt2,cell) {
+	print(paste0(trt," ",cell))
+	temp<- ds0 %>% dplyr::select(-labelcode) 
+	tot.nuc<-rowSums(temp, na.rm=T)
+	labelcode<-ds0$labelcode
+	temp.totnuc<-cbind.data.frame(labelcode, tot.nuc)
+	temp.phen<-merge(temp.totnuc, trait.ds, by="labelcode")
+	temp.phen<-dplyr::slice(temp.phen, match(ds0$labelcode, labelcode)) %>%
+		mutate(lnIns=log(S_Insu))
+	if (trt == "SEX") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, age_biopsy, area_name, batch, all_of(trt), tot.nuc, lnIns) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   fstr<-paste0("nuc ~ agescale + as.factor(BATCH) + as.factor(area_name) + lnIns + x + offset(log(tot.nuc))") 
+	}   
+	if (trt == "age_biopsy") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, area_name, batch, all_of(trt), tot.nuc, lnIns) %>%
+		mutate(BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("nuc ~ as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + lnIns + x + offset(log(tot.nuc))") 
+	}   
+	if (trt == "T2D") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, all_of(trt), tot.nuc, lnIns) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   fstr<-paste0("nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + lnIns + x + offset(log(tot.nuc))") 
+	}   
+	if (!(trt %in% c("SEX", "age_biopsy", "T2D"))) {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, all_of(trt), tot.nuc, lnIns) %>%
+		dplyr::filter(complete.cases(.)) %>% 
+		dplyr::mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + lnIns + x + offset(log(tot.nuc))") 
+	   phen$agescale=scale(phen$age_biopsy)	
+	}
+	# only use samples with cell type data
+	ds<-ds0 %>% dplyr::select(labelcode,paste0(cell)) %>% filter(complete.cases(.))
+	names(ds)<-c("labelcode", "nuc")
+	
+	# ensure count samples are same as complete pheno samples 
+	use<-intersect(ds$labelcode, phen$labelcode)
+	
+	ds<- dplyr::slice(ds, match(use, labelcode)) 
+	phen<-dplyr::slice(phen, match(use, labelcode))
+	df<- merge(ds, phen, by="labelcode")
+	
+	nb<-glm.nb(as.formula(fstr), data=df)
+	#pois<-glm(as.formula(fstr), family="poisson", data=df)
+	#ll<-pchisq(2*(logLik(nb) - logLik(pois)), df=1, lower.tail=FALSE)
+	#print(ll)
+	res<-tidy(nb) %>% filter(substr(term,1,1)=="x")
+	# res is for the last variable in the design
+	res$celltype=cell
+	res$trait=trt2
+	res$n=nrow(df)
+	return(res)
+}
+
+
+
+#dotplot for a single trait, x=celltype
+dotplot<- function(ds, trtstr, pthresh) {
+	myColors = c("black", "blue", "red")
+	names(myColors) <- c("No assoc", "Negative assoc", "Positive assoc")
+
+	ds<-ds %>% 
+		mutate(psig=ifelse(padj>=pthresh,"No assoc",
+		ifelse(statistic<0,"Negative assoc", "Positive assoc")))
+
+	return(ggplot(ds, aes(x=celltype, y=estimate, color=psig)) + 
+	geom_point(size=2) + 
+  	theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) + 
+  	geom_errorbar(aes(ymin=estimate-1.96*(std.error), ymax=estimate+1.96*(std.error))) + 
+	scale_colour_manual(values=myColors)  + 
+	geom_hline(yintercept=0, colour="gray") + 
+  	ggtitle(paste0(trtstr)) + 
+	facet_wrap(~modality, strip.position="left", dir="v")
+	)
+}
+
+
+
+#dotplot for a single celltype, x=traits
+dotplot_celltype<-function(ds, cellstr,pthresh,ylim) {
+	myColors = c("black", "blue", "red")
+	names(myColors) <- c("No assoc", "Negative assoc", "Positive assoc")
+
+	ds<-ds %>% 
+		mutate(psig=ifelse(padj>=pthresh,"No assoc",
+		ifelse(statistic<0,"Negative assoc", "Positive assoc")))
+
+return(ggplot(ds, aes(x=trait, y=estimate, color=psig)) + 
+	geom_point(size=2) + 
+  	theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) + 
+  	geom_errorbar(aes(ymin=estimate-1.96*(std.error), ymax=estimate+1.96*(std.error))) + 
+	scale_colour_manual(values=myColors)  + 
+	geom_hline(yintercept=0, colour="gray") + 
+  	ggtitle(paste0(cellstr, " NUCLEI")) +
+	facet_wrap(~modality, strip.position="left", dir="v")	
+	)
+}
+
+#dotplots where each facet row is a celltype, x=traits 
+dotplot_celltype_rnaatac<-function(ds, types, pthresh, ymin, ymax, sz) {
+	myColors = c("black", "blue", "red")
+	names(myColors) <- c("No assoc", "Negative assoc", "Positive assoc")
+
+	temp<-ds %>% dplyr::filter(celltype %in% all_of(types))  %>%
+		mutate(psig=ifelse(padj>=pthresh,"No assoc",
+		ifelse(statistic<0,"Negative assoc", "Positive assoc")))
+
+   return(
+	ggplot(temp, aes(x=trait, y=estimate, color=psig)) + 
+	geom_point(size=2) + 
+	
+  	theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5, size=sz)) + 
+  	geom_errorbar(aes(ymin=estimate-1.96*(std.error), ymax=estimate+1.96*(std.error))) + 
+	ylim(ymin, ymax) + 
+	scale_colour_manual(values=myColors)  + 
+	theme(legend.position="none") + 
+	geom_hline(yintercept=0, colour="gray") + 
+	facet_wrap(~celltype, strip.position="right", dir="v")	
+   )
+}
+
+cor_heatmap<-function(ds, meth, prefixPlot, cex, mrg) {
+	# default method=pearson and use=pairwise.complete.obs
+	# can also set use to everything, all.obs, complete.obs, na.or.complete
+	cor.tibble<-correlate(ds, method=meth)
+	cor.mx<-cor.tibble %>% dplyr::select(-term) %>% as.matrix()
+	colnames(cor.mx)<-cor.tibble$term
+	rownames(cor.mx)<-cor.tibble$term
+
+	return(
+	heatmap.2(cor.mx, trace="none", dendrogram="none",
+	Rowv=FALSE, Colv=FALSE, 
+	cexRow=cex, cexCol=cex, 
+	col=bluered(256), margins=c(mrg,mrg),
+	offsetRow=-0.5, offsetCol=-0.5, # to move to left try setting to -36
+	adjRow=c(0,NA), adjCol=c(NA,0), # Defaults shown; to left justify and center row labels vertically adjRow=c(0,vrtadj0.5), to right justify row labels adjRow=c(1,0.5); to right justify column labels and center horizontally adjCol=c(0,0.5)
+	density.info="none", 
+	key=TRUE, keysize=0.6, key.par=list(cex=0.3)) 
+	)
+}
+
+
+
+
+```
+## SEX only, RNA+ATAC nuclei, 279 samples  
+### Negative binomial model: nuclei counts ~ age.scaled + sex + batch + area_name + offset(log(tot.nuc))  
+###  Dot plots are the neg binomial estimates +/- 1.96*SE    
+Red/blue 'significant' represents B-H q<.05, calculated across cell types for sex.  
+
+```{r make_negbinom_output_sex, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE, results='asis'}
+
+####  RNA+ATAC  
+out<-data.frame()
+df.both.nuc<-readRDS("data/df.both.nuc.Rds")
+trait.ds<-readRDS("data/trait.ds.281.Rds") #includes 2 extra samples that won't be merged in
+
+traits<-c("SEX")      
+traits2<-c("SEX.M") 
+  
+celltypes<-c("Type_1", "Type_2a", "Type_2x", "Adipocyte", "Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "T_cell")
+
+for (j in 1:length(celltypes)) {
+   tempout<-data.frame()
+   for (i in 1:length(traits)) {
+	res.both<-run_nb_invnorm(df.both.nuc, traits[i], traits2[i], celltypes[j]) %>% 
+		mutate(modality="rna+atac")
+	if (i==1) {tempout=res.both} else {tempout=rbind.data.frame(tempout,res.both)}
+   }
+   if (j==1) {out<-tempout} else {out<- rbind.data.frame(out, tempout)}
+}
+#make B-H adjustment across cell type
+out<- out %>% mutate(padj=p.adjust(p.value, method="BH"))
+
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_cell_SEX_fdr_across_celltypes.Rds")
+out<-out %>% dplyr::select(trait, celltype, n, estimate, std.error, p.value, padj, modality) 
+print(kable(out) %>% kable_styling(bootstrap_options=c("striped", "condensed"), full_width=F))
+
+```
+```{r nb_nuclei_sex, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="nb estimates for each celltype for sex"}
+out<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_cell_SEX_fdr_across_celltypes.Rds")
+print(dotplot(out, "SEX.M", 0.05))
+
+```
+
+
+###  Repeat for RNA nuclei only  
+```{r make_negbinom_output_sex_rna, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE, results='asis'}
+
+####  RNA  
+out<-data.frame()
+df.rna.nuc<-readRDS("data/df.rna.nuc.Rds")
+trait.ds<-readRDS("data/trait.ds.281.Rds") 
+
+traits<-c("SEX")      
+traits2<-c("SEX.M") 
+  
+celltypes<-c("Type_1", "Type_2a", "Type_2x", "Adipocyte", "Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "T_cell")
+
+for (j in 1:length(celltypes)) {
+   tempout<-data.frame()
+   for (i in 1:length(traits)) {
+	res.both<-run_nb_invnorm(df.rna.nuc, traits[i], traits2[i], celltypes[j]) %>% 
+		mutate(modality="rna")
+	if (i==1) {tempout=res.both} else {tempout=rbind.data.frame(tempout,res.both)}
+   }
+   if (j==1) {out<-tempout} else {out<- rbind.data.frame(out, tempout)}
+}
+#make B-H adjustment across cell type
+out<- out %>% mutate(padj=p.adjust(p.value, method="BH"))
+
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_cell_SEX_fdr_across_celltypes_RNAnuc.Rds")
+out<-out %>% dplyr::select(trait, celltype, n, estimate, std.error, p.value, padj, modality) 
+print(kable(out) %>% kable_styling(bootstrap_options=c("striped", "condensed"), full_width=F))
+
+```
+```{r nb_nuclei_sex_rna, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="nb estimates for each celltype for sex, RNA nuclei only"}
+out<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_cell_SEX_fdr_across_celltypes_RNAnuc.Rds") %>% arrange(estimate)
+print(dotplot(out, "SEX.M", 0.05))
+
+```
+
+
+###  Repeat for ATAC nuclei only
+```{r make_negbinom_output_sex_atac, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE, results='asis'}
+
+####  ATAC  
+out<-data.frame()
+df.atac.nuc<-readRDS("data/df.atac.nuc.Rds")
+trait.ds<-readRDS("data/trait.ds.281.Rds") 
+
+traits<-c("SEX")      
+traits2<-c("SEX.M") 
+  
+celltypes<-c("Type_1", "Type_2a", "Type_2x", "Adipocyte", "Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "T_cell")
+
+for (j in 1:length(celltypes)) {
+   tempout<-data.frame()
+   for (i in 1:length(traits)) {
+	res<-run_nb_invnorm(df.atac.nuc, traits[i], traits2[i], celltypes[j]) %>% 
+		mutate(modality="atac")
+	if (i==1) {tempout=res} else {tempout=rbind.data.frame(tempout,res)}
+   }
+   if (j==1) {out<-tempout} else {out<- rbind.data.frame(out, tempout)}
+}
+#make B-H adjustment across cell type
+out<- out %>% mutate(padj=p.adjust(p.value, method="BH"))
+
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_cell_SEX_fdr_across_celltypes_ATACnuc.Rds")
+out<-out %>% dplyr::select(trait, celltype, n, estimate, std.error, p.value, padj, modality) 
+print(kable(out) %>% kable_styling(bootstrap_options=c("striped", "condensed"), full_width=F))
+
+```
+```{r nb_nuclei_sex_atac, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="nb estimates for each celltype for sex, ATAC nuclei only"}
+out<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_cell_SEX_fdr_across_celltypes_ATACnuc.Rds") %>% arrange(estimate)
+print(dotplot(out, "SEX.M", 0.05))
+
+```
+
+
+
+
+
+
+
+```{r make_negbinom_output_invnorm, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+
+out<-data.frame()
+
+df.both.nuc<-readRDS("data/df.both.nuc.Rds")
+trait.ds<-readRDS("data/trait.ds.281.Rds") 
+# note beware any element in traits starting with "x" since that's the name of the dummy phenotype in the function  
+traits<-c("SEX", "age_biopsy", "T2D", "S_Insu", "bmi",  "glu_fast_biopsy", "HEIGHT", "WEIGHT", "WAIST", "whr", "HIP", "S_ALAT", "S_hs_CRP", "fS_Kol", "fS_Kol_HDL", "fS_Kol_LDL_c", "fS_Trigly", "GL30", "GL60", "GL120", "S_LipoA1", "S_LipoB", "fS_C_pept", "fS_Krea", "S_GT", "S_Uraat", "fS_C_pept_30", "S_Insu_30", "B_GHb_A1C", "glu_2h_biopsy", "daily_energy_expenditure", "total_daily_physical_activity", "moderate_physical_activity", "strenuous_physical_activity",  "p_insu", "p_insu_30", "p_insu_60", "p_insu_120", "RFM", "sbp", "dbp", "ApoB_A1_ratio", "Ins_AUC_0to30", "Glu_AUC_0to30", "InsSec30", "InsGenIn", "DIo", "CpepGenIn", "HOMA", "matsuda_4pt", "matsuda_3pt", "LTPA_duration_all", "LTPA_duration_cond", "LTPA_duration_noncond", "LTPA_energy_all", "LTPA_energy_cond", "LTPA_energy_noncond", "LTPA_energy_light", "LTPA_energy_moderate", "LTPA_energy_modvig", "LTPA_energy_vigorous", "sleep_biopsy", "totalcw", "sleep_24h", "GL0")      
+traits2<-c("SEX.M", "AGE", "T2D", "INSFAST", "BMI", "GLUFAST", "HEIGHT", "WEIGHT", "WAIST", "WHR", "HIP", "ALAT", "CRP", "CHOL", "HDL", "LDL", "TG", "GL30", "GL60", "GL120", "APOA1", "APOB", "CPEP", "CREAT", "GT", "URIC", "CPEP30", "S_INS30", "HBA1C", "GLU2H", "ENERGY", "PA_TOT", "PA_MOD", "PA_STREN", "INS0", "INS30", "INS60", "INS120", "RFM", "SBP", "DBP", "APOB.A1.RATIO", "INS_AUC_0_30", "GLU_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG", "SLEEP", "ALCOHOL", "SLEEP24H", "GL0")   
+ 
+  
+celltypes<-c("Type_1", "Type_2a", "Type_2x", "Adipocyte", "Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "T_cell")
+
+
+for (j in 1:length(celltypes)) {
+   tempout<-data.frame()
+   for (i in 1:length(traits)) {
+	res.both<-run_nb_invnorm(df.both.nuc, traits[i], traits2[i], celltypes[j]) %>% 
+		mutate(modality="rna+atac")
+	if (i==1) {tempout=res.both} else {tempout=rbind.data.frame(tempout,res.both)}
+   }
+   #make B-H adjustment across traits, within cell type
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   if (j==1) {out<-tempout} else {out<- rbind.data.frame(out, tempout)}
+}
+
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_cell_fdrpercelltype.Rds")
+```
+
+
+## All traits
+### Negative binomial model: nuclei counts ~ age.scaled + sex + batch + area_name + trait.invnorm  + offset(log(tot.nuc))  
+###  Dot plots are the neg binomial estimates +/- 1.96*SE    
+Red/blue 'significant' represents B-H q<.05, calculated within each cell type across all 65 traits including sex - so the single trait plots are misleading   
+
+For example, for SEX.M, the rna+atac for Satellite cell is NOT significant when looking across all traits, 
+however when calculating p.adj across cell types just for SEX in rna+atac nuclei, SEX is significant in satellite cells.
+
+###  Dot plots for each celltype, per invnorm trait  
+```{r nb_nuclei_invnorm, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="nb estimates for each celltype, per invnorm trait"}
+out<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_cell_fdrpercelltype.Rds")
+
+for (i in 1:length(traits)) {
+tp<-out %>% filter(trait==traits2[i])
+print(dotplot(tp, traits2[i], 0.05))
+}
+```
+
+##  Dot plots for each invnorm trait, per celltype  
+```{r celltype_traits_invnorm, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="nb estimates for each invnorm trait, per celltype"}
+
+
+out<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_cell_fdrpercelltype.Rds")
+for (i in 1:length(celltypes)) {
+tp<-out[which(out$celltype==celltypes[i]),]
+tp$trait<-factor(tp$trait, levels=c("HEIGHT", "BMI", "HIP", "RFM", "WAIST", "WEIGHT", "WHR", "CHOL", "HDL", "LDL", "TG", "APOA1", "APOB", "APOB.A1.RATIO", "GLUFAST", "GL0", "GL30", "GL60", "GL120", "GLU_AUC_0_30", "GLU2H",  "HBA1C", "T2D", "INSFAST", "INS0", "S_INS30", "INS30", "INS60", "INS120", "CPEP", "CPEP30", "INS_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "CRP", "CREAT", "GT", "ALAT", "URIC", "SBP", "DBP", "ENERGY",  "PA_TOT", "PA_MOD", "PA_STREN", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG",  "SLEEP", "SLEEP24H", "ALCOHOL", "SEX.M", "AGE"))
+print(dotplot_celltype(tp, celltypes[i], 0.05))
+}
+```
+
+
+##  Dot plots all traits and celltypes
+
+* SEX(Male): +Type_2x, -Type_1, -Neuronal (as before)
+* BMI: +Neuromuscular_junction, +Type_2x, -MFM  (no Type_1 anymore)
+* AGE: +Neuromuscular_junction, -Type_2x (Type 2x NEW)
+* T2D: +Neuromuscular_junction (NEW)
+* Fasting insulin: +Neuromuscular_junction, +Type_2x, -MFM (no Type_1 anymore) 
+* Height: none (as before)
+* Hip: +Neuromuscular_junction only (previously also had +Type_2x, -MFM)
+* Waist: +Neuromuscular_junction, +Type_2x only (previously also had -Type_1, -MFM)
+* Weight: +Neuromuscular_junction, +Type_2x only (previously also had -MFM)
+* WHR: +Neuromuscular_junction, +Type_2x, -Type_1 only (previously also had  -MFM)
+* Fasting glucose: +Neuromuscular_junction (previously only had +Type_2x)
+* ALAT: +Neuromuscular_junction, +Type_2x, -Type_1, -MFM (as before)
+* CRP: +Neuromuscular_junction (previously also had  +Type_2x)
+* Total cholesterol: none (as before)
+* HDL: +MFM, -Type_2x (as before)
+* LDL: none (as before)
+* Triglycerides: +Type_2x, -Type_1, -MFM (as before)
+* GL0: +Neuromuscular_junction only (previously also had +Type_2x)
+* GL30: +Neuromuscular_junction, +Type_2x (as before)
+* GL60: +Neuromuscular_junction, +Type_2x, -MFM (as before)
+* GL120: +Neuromuscular_junction, +Type_2x, -MFM (as before)
+* GLC_AUC_0_30: +Neuromuscular_junction, +Type_2x (as before)
+* GLU2H: +Type_2x, -Type_1, -MFM (previously no - Type_1)
+* HbA1c: none (previously +Type_2x)
+* ApoA1: +MFM (as before)
+* ApoB: none (as before)
+* CPEP: +Neuromuscular_junction, +Type_2x, -Type_1, -MFM (as before)
+* Creatinine: -Neuromuscular_junction (new)
+* GT: +Neuromuscular_junction only (previously also had +Type_2x)
+* Uric acid:  +Neuromuscular_junction, +Type_2x (as before)
+* CPEP30: +Type_2x, -Type_1, -MFM (as before) 
+* INS30_Serum: +Type_2x, -Type_1, -MFM (as before)
+* Energy expenditure: +Smooth_muscle (as before)
+* PA_TOT: none (previously +MFM)
+* PA_MOD: +MFM, +Smooth_muscle (previously only +Smooth_muscle)
+* PA_STREN: +MFM (previously +Smooth_muscle)
+* ENERGY_ALL: -Type_2x, -Neuromuscular_junction, +Type_1, +MFM (as before)
+* ENERGY_COND: -Type_2x, +Type_1, +MFM (previously also had +Smooth_muscle)
+* ENERGY_NONCOND: none (as before)
+* INS0: +Neuromuscular_junction, +Type_2x, -MFM (as before)
+* INS30: +Type_2x (previously also had -MFM)
+* INS60: +Type_2x, -Type_1, -MFM (as before)
+* INS120: +Type_2x, +Smooth_muscle, -Type_1, -MFM (as before)
+* RFM: +Neuromuscular_junction, +Type_2x,  -Type_1, -MFM (as before)
+* SBP: +Neuromuscular_junction, +Type_2x (as before)
+* DBP: +Neuromuscular_junction (previously also had +Type_2x)
+* ApoB/ApoA1: -MFM (as before)
+* INS_AUC_0_30: +Type_2x, -Type_1, -MFM (as before)
+* INSSEC: +Type_2x, -Type_1, -MFM (as before)
+* INSGENIN: +Type_2x (previously -MFM)
+* DI: +Type_2x, -Type_1, -MFM (as before)
+* CPEPGENIN: none (as before)
+* HOMA: +Neuromuscular_junction, +Type_2x, -Type_1, -MFM (as before)
+* Matsuda 4pt: -Neuromuscular_junction, -Type_2x, +Type_1, +MFM (previously no -NMJ)
+* Matsuda 3pt: -Neuromuscular_junction, -Type_2x, +Type_1, +MFM (as before)
+* SLEEP.BIOP: none (as before)
+* SLEEP.24H: none (as before)
+* Alcohol: +Neuromuscular_junction, -Smooth_muscle (none before)
+* Smoker: none (as before)
+
+```{r dot_rna_atac_all, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="nb estimates for each invnorm trait for all celltypes"}
+
+types1<-c("Type_1", "Type_2a")
+types2<-c("Type_2x", "Neuromuscular_junction")
+types3<-c("Endothelial", "Smooth_Muscle")
+types4<-c("Mesenchymal_Stem_Cell","Neuronal")
+types5<-c("Satellite_Cell","Macrophage")
+types6<-c("T_cell", "Adipocyte")
+
+
+df<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_cell_fdrpercelltype.Rds") %>% filter(modality=="rna+atac")
+df$trait<-factor(df$trait, levels=c("HEIGHT", "BMI", "HIP", "RFM", "WAIST", "WEIGHT", "WHR", "CHOL", "HDL", "LDL", "TG", "APOA1", "APOB", "APOB.A1.RATIO", "GLUFAST", "GL0", "GL30", "GL60", "GL120", "GLU_AUC_0_30", "GLU2H",  "HBA1C", "T2D", "INSFAST", "INS0", "S_INS30", "INS30", "INS60", "INS120", "CPEP", "CPEP30", "INS_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "CRP", "CREAT", "GT", "ALAT", "URIC", "SBP", "DBP", "ENERGY",  "PA_TOT", "PA_MOD", "PA_STREN", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG",  "SLEEP", "SLEEP24H", "ALCOHOL", "SEX.M", "AGE"))
+print(dotplot_celltype_rnaatac(df,types1,0.05,-.5,.5, 4))
+print(dotplot_celltype_rnaatac(df,types2,0.05,-.5,.7, 4))
+print(dotplot_celltype_rnaatac(df,types3,0.05,-.5,.5, 4))
+print(dotplot_celltype_rnaatac(df,types4,0.05,-.5,.5, 4))
+print(dotplot_celltype_rnaatac(df,types5,0.05,-.5,.5, 4))
+print(dotplot_celltype_rnaatac(df,types6,0.05,-.5,.5, 4))
+
+```
+
+
+
+
+```{r write_rnaatac_invnorm, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, asis=TRUE}
+
+ds<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_cell_fdrpercelltype.Rds") %>% 
+	filter(modality=="rna+atac") %>% dplyr::select(-modality)
+write.table(ds, "output/nuclei_nb/rnaatac.nuclei.invnormtrait.results.txt", col.names=T, row.names=F, quote=F, sep="\t")
+
+```
+
+
+
+
+
+##  Adjusting for log(fasting insulin)  
+Model celltype nuclei ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + log(S_Insu) + x + offset(log(tot.nuc)   
+Left figure is basic analysis; right is adjusting for log(fasting insulin)  
+```{r make_nb_output_invnorm_ins, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+
+out<-data.frame()
+trait.ds<-readRDS("data/trait.ds.281.Rds") 
+df<-readRDS("data/df.both.nuc.Rds") %>% dplyr::select(-all) 
+
+
+for (j in 1:length(celltypes)) {
+   tempout<-data.frame()
+   for (i in 1:length(traits)) {
+	res.both<-run_nb_invnorm_ins(df, traits[i], traits2[i], celltypes[j]) %>% 
+		mutate(modality="rna+atac")
+	if (i==1) {tempout=res.both} else {tempout=rbind.data.frame(tempout,res.both)}
+   }
+   #make B-H adjustment across traits, within cell type
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   if (j==1) {out<-tempout} else {out<- rbind.data.frame(out, tempout) }
+}
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_cell_fdrpercelltype_adjIns.Rds")
+```
+
+
+```{r dot_rna_atac_all_adjins, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="nb estimates for each invnorm trait for all celltypes,left is basic analysis, right is same except adjusting for log(fasting insulin) in model"}
+
+#  Plots for base
+df<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_cell_fdrpercelltype.Rds") %>% dplyr::filter(modality=="rna+atac") %>% dplyr::filter(!(trait %in% c("INSFAST", "INS0"))) 
+trtlevels.ins<-c("HEIGHT", "BMI", "HIP", "RFM", "WAIST", "WEIGHT", "WHR", "CHOL", "HDL", "LDL", "TG", "APOA1", "APOB", "APOB.A1.RATIO", "GLUFAST", "GL0", "GL30", "GL60", "GL120", "GLU_AUC_0_30", "GLU2H",  "HBA1C", "T2D", "S_INS30", "INS30", "INS60", "INS120", "CPEP", "CPEP30", "INS_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "CRP", "CREAT", "GT", "ALAT", "URIC", "SBP", "DBP", "ENERGY",  "PA_TOT", "PA_MOD", "PA_STREN", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG",  "SLEEP", "SLEEP24H", "ALCOHOL", "SEX.M", "AGE")
+df$trait<-factor(df$trait, levels=trtlevels.ins)
+
+types1<-c("Type_1", "Type_2a")
+types2<-c("Type_2x", "Neuromuscular_junction")
+types3<-c("Endothelial", "Smooth_Muscle")
+types4<-c("Mesenchymal_Stem_Cell","Neuronal")
+types5<-c("Satellite_Cell","Macrophage")
+types6<-c("T_cell", "Adipocyte")
+
+p1<-dotplot_celltype_rnaatac(df,types1,0.05,-.5,.5, 4)
+p2<-dotplot_celltype_rnaatac(df,types2,0.05,-.5,.7,4)
+p3<-dotplot_celltype_rnaatac(df,types3,0.05,-.4,.4,4)
+p4<-dotplot_celltype_rnaatac(df,types4,0.05,-.5,.4,4)
+p5<-dotplot_celltype_rnaatac(df,types5,0.05,-.5,.5,4)
+p6<-dotplot_celltype_rnaatac(df,types6,0.05,-.5,.5,4)
+
+#  Plots for adjins
+df1<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_cell_fdrpercelltype_adjIns.Rds") %>% dplyr::filter(modality=="rna+atac") %>% dplyr::filter(!(trait %in% c("INSFAST","INS0"))) 
+df1$trait<-factor(df1$trait, levels=trtlevels.ins)
+
+p1.i<-dotplot_celltype_rnaatac(df1,types1,0.05,-.5,.5, 4)
+p2.i<-dotplot_celltype_rnaatac(df1,types2,0.05,-.5,1.2, 4)
+p3.i<-dotplot_celltype_rnaatac(df1,types3,0.05,-.4,.4, 4)
+p4.i<-dotplot_celltype_rnaatac(df1,types4,0.05,-.6,.3, 4)
+p5.i<-dotplot_celltype_rnaatac(df1,types5,0.05,-.5,1, 4)
+p6.i<-dotplot_celltype_rnaatac(df1,types6,0.05,-.5,.5, 4)
+
+print(grid.arrange(p1, p1.i, nrow=1, ncol=2))
+print(grid.arrange(p2, p2.i, nrow=1, ncol=2))
+print(grid.arrange(p3, p3.i, nrow=1, ncol=2))
+print(grid.arrange(p4, p4.i, nrow=1, ncol=2))
+print(grid.arrange(p5, p5.i, nrow=1, ncol=2))
+print(grid.arrange(p6, p6.i, nrow=1, ncol=2))
+
+
+```

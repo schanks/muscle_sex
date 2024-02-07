@@ -1,0 +1,209 @@
+---
+title: "Make pseudobulk counts files for hg38, also covariate files.  Note pbulk filtering to 5 counts in 25% of samples is done in 4.0_make_bulk_dataset_hg38.Rmd"
+output:
+  workflowr::wflow_html:
+    toc: true
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, dev=c('png', 'pdf'), include=FALSE}
+knitr::opts_chunk$set(dev = c('png', 'pdf'))
+knitr::opts_chunk$set(autodep = TRUE)
+```
+
+```{r include=F}
+.libPaths("/net/snowwhite/home/aujackso/R/x86_64-pc-linux-gnu-library/4.0");
+library(dplyr)
+library(readr)
+library(stringr)
+library(ggplot2)
+options(scipen=1, digits=8)
+
+```
+Notes from Arushi about the RNA data  
+We don't estimate contamination using genotypes per se. We filter RNA nuclei at several stages  
+
+1. identify #UMI, mitochondrial fraction thresholds and initial qc
+2. dropletUtils testEmptyDrops initially to separate nuclei from ambient
+3. two-stage Demuxlet to identify singlets
+4. Decontx to adjust RNA counts accounting for remaining ambient contamination. This also gives a contamination estimate and we additionally qc out nuclei here.  
+
+ 
+Make snRNA counts datasets for each celltype and pseudobulk RNA.  
+ATAC per person datasets are already made by Arushi.  
+
+
+Note that snRNA and snATAC counts datasets were created using this code from ~/snRNAsnATAC_paper1/analysis/2.0_make_snRNAcount_ds.Rmd 
+I am using links to the resulting files 
+~/snRNAsnATAC_paper1/output/decontx_counts_[CELLTYPE].txt.gz
+~/snRNAsnATAC_paper1/output/atac.counts.no0.[CELLTYPE].txt
+
+These count files still contain too many samples, so must filter later.
+
+
+```{r make_pbulk_counts, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+celltype<-c("Type_1", "Type_2a", "Type_2x", "Adipocyte", "Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "T_cell")
+
+who.use.rna<-readRDS("data/df.rna.nuc.Rds")%>% pull(labelcode) 
+pb<-read_tsv("data/decontx_counts_Type_1.txt.gz") %>%as.data.frame() %>% select(gene, all_of(who.use.rna))
+for (i in 2:length(celltype)) {
+     ds<-read_tsv(paste0("data/decontx_counts_",celltype[i],".txt.gz"))
+     who.cell<-intersect(colnames(ds)[-1], who.use.rna)
+     for(k in 1:length(who.cell)) {
+        temp<-ds[,who.cell[k]]
+	old<-pb[,who.cell[k]]
+	cur<-old+temp
+	pb[,who.cell[k]]<-cur
+     }
+}
+write.table(pb, paste0("data/pbulk_counts.allgenes.txt"), col.names=T, row.names=F, quote=F, sep="\t")
+
+```
+
+
+###################################################################
+#  PSEUDOBULK  
+```{r prep_data_pbulk, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+pbulk<-read_tsv("data/pbulk_counts.allgenes.txt") 
+	#58962
+pbulk.gene<-pbulk$gene
+ct.pbulk<-pbulk %>% select(-gene) %>% as.matrix()
+rownames(ct.pbulk)<-pbulk.gene
+
+
+#phenotypes and covariates
+traits<-c("SEX", "AGE", "T2D", "INS", "BMI",  "GLU", "HEIGHT", "WEIGHT", "WAIST", "WHR", "HIP", "S_ALAT", "S_hs_CRP", "fS_Kol", "fS_Kol_HDL", "fS_Kol_LDL_c", "fS_Trigly", "GL0", "GL30", "GL60", "GL120", "S_LipoA1", "S_LipoB", "fS_C_pept", "fS_Krea", "S_GT", "S_Uraat", "fS_C_pept_30", "S_Insu_30", "B_GHb_A1C", "glu_2h_biopsy", "daily_energy_expenditure", "total_daily_physical_activity", "moderate_physical_activity", "strenuous_physical_activity",  "p_insu", "p_insu_30", "p_insu_60", "p_insu_120", "RFM", "sbp", "dbp", "ApoB_A1_ratio", "Ins_AUC_0to30", "Glu_AUC_0to30", "InsSec30", "InsGenIn", "DIo", "CpepGenIn", "HOMA", "matsuda_4pt", "matsuda_3pt", "LTPA_duration_all", "LTPA_duration_cond", "LTPA_duration_noncond", "LTPA_energy_all", "LTPA_energy_cond", "LTPA_energy_noncond", "LTPA_energy_light", "LTPA_energy_moderate", "LTPA_energy_modvig", "LTPA_energy_vigorous", "sleep_biopsy", "totalcw", "sleep_24h")      
+
+phen0<-read_tsv("data/pbulk_covars.txt") %>% mutate(snrna_batch=paste0("B",batch)) %>% select(-batch) 
+
+heather<-read_csv("data/tissue.csv") %>% 
+	dplyr::rename(AGE=age_biopsy, INS=S_Insu, BMI=bmi, WHR=whr, GLU=glu_fast_biopsy) %>% 
+	mutate(T2D=ifelse(ogtt_status_paper=="T2D",1,ifelse(ogtt_status_paper=="NGT",0,NA))) %>% 
+	select(labelcode, area_name, all_of(traits))
+	
+p.pbulk<- merge(phen0, heather, by="labelcode")
+
+
+# read in muscle tissue proportions based on snRNA + snATAC nuclei, not including muscle fiber mixed
+prop<-readRDS("data/prop.both.nuc.Rds")  
+p.pbulk<-merge(p.pbulk,prop,by="labelcode")
+
+
+ct.pbulk<-as.data.frame(ct.pbulk) %>% dplyr::select(all_of(p.pbulk$labelcode)) %>% as.matrix()
+
+# 58962 genes, 279 people
+#check labelcode order is correct
+print(all.equal(colnames(ct.pbulk), p.pbulk$labelcode))
+saveRDS(p.pbulk,"data/phen_pbulk.Rds")
+saveRDS(ct.pbulk, "data/ct.pbulk.Rds")  # NOT FILTERED
+```
+
+
+Make covariate datasets for pbulk - also RNA and ATAC
+
+For ATAC, just use per sample per celltype tss_enrichment from /net/csgspare2/spare1/muscle_singlenuclei/clustering_f2_09_20/cluster-sample-ataqv-stats.txt  Totals are PER CELL TYPE.  
+
+```{r make_covars_pbulk, echo=FALSE, warning=FALSE, message=FALSE, eval=TRUE, cache=FALSE}
+
+fusall = read_tsv("data/cluster_info_qc.tsv", guess_max=480000) %>% 
+	filter(cohort=="FUSION") %>%
+	dplyr::rename(labelcode=SNG.1ST) %>%
+	filter(coarse_cluster_name != "Muscle_Fiber_Mixed")
+	
+
+#Pbulk 279 samples
+who.use.rna<-readRDS("data/df.rna.nuc.Rds")%>% pull(labelcode) 
+
+   ds0<-fusall %>% filter(modality=="rna") %>% 
+   	filter(labelcode %in% all_of(who.use.rna)) 
+   nuc0<-ds0 %>% group_by(labelcode) %>% 
+	summarise(tot_nuc=n()) 
+   umi0<-ds0 %>% group_by(labelcode) %>% 
+	summarise(tot_umi=sum(hqaa_umi))
+   mito0<-ds0 %>% group_by(labelcode) %>% 
+	summarise(med.frac.mito=median(fraction_mitochondrial))
+   batch0<-ds0 %>% group_by(labelcode) %>% 
+	summarise(batch=unique(batch))
+
+   covs0<- nuc0 %>% left_join(umi0) %>% left_join(mito0) %>% left_join(batch0)  %>% mutate(celltype="pbulk")
+
+cts<-readRDS("data/ct.pbulk.Rds") 
+tot.decontx.counts<-colSums(cts)
+labelcode<-names(tot.decontx.counts)
+cts<-cbind.data.frame(labelcode, tot.decontx.counts)	
+covs.out<-covs0 %>% inner_join(cts, by="labelcode")
+
+write.table(covs.out, "data/pbulk_covars.txt" , col.names=T, row.names=F, quote=F, sep="\t")
+
+
+
+# RNA - 279 samples
+   nuc0<-ds0 %>% group_by(labelcode) %>% 
+	summarise(tot_nuc_allcelltypes=n()) 
+   rna.covs0<- nuc0 %>% left_join(batch0)
+write.table(rna.covs0, "data/rna_covars.txt" , col.names=T, row.names=F, quote=F, sep="\t")
+
+  
+#ATAC - 281 samples
+who.use.atac<-readRDS("data/df.atac.nuc.Rds")%>% pull(labelcode) 
+
+   ds0<-fusall %>% filter(modality=="atac") %>% 
+   	filter(labelcode %in% all_of(who.use.atac)) 
+   nuc0<-ds0 %>% group_by(labelcode) %>% 
+	summarise(tot_nuc_allcelltypes=n()) 
+
+ds<-read_tsv("data/atac_sample_level_covariates.tsv", guess_max=3658) %>% 
+  mutate(celltype=gsub("fusion.","",coarse_cluster_name)) %>%
+  filter(celltype != "Muscle_Fiber_Mixed") %>% 
+  rename(labelcode=SNG.1ST) %>% 
+  filter(labelcode %in% all_of(who.use.atac)) 
+
+
+ds<- merge(ds, nuc0, by="labelcode")
+write.table(ds, "data/atac_covars.txt", col.names=T, row.names=F, quote=F, sep="\t")
+
+table(ds$celltype)
+# 3350 rows = 8 celltypes with 281 samples, Adipocyte with 280, NMJ with 278, Satellite with 276, Macrophage with 268
+
+```
+
+```{r prep_data_pbulk, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+pbulk<-read_tsv("data/pbulk_counts.allgenes.txt") 
+	#58962
+pbulk.gene<-pbulk$gene
+ct.pbulk<-pbulk %>% select(-gene) %>% as.matrix()
+rownames(ct.pbulk)<-pbulk.gene
+
+
+#phenotypes and covariates
+traits<-c("SEX", "AGE", "T2D", "INS", "BMI",  "GLU", "HEIGHT", "WEIGHT", "WAIST", "WHR", "HIP", "S_ALAT", "S_hs_CRP", "fS_Kol", "fS_Kol_HDL", "fS_Kol_LDL_c", "fS_Trigly", "GL0", "GL30", "GL60", "GL120", "S_LipoA1", "S_LipoB", "fS_C_pept", "fS_Krea", "S_GT", "S_Uraat", "fS_C_pept_30", "S_Insu_30", "B_GHb_A1C", "glu_2h_biopsy", "daily_energy_expenditure", "total_daily_physical_activity", "moderate_physical_activity", "strenuous_physical_activity",  "p_insu", "p_insu_30", "p_insu_60", "p_insu_120", "RFM", "sbp", "dbp", "ApoB_A1_ratio", "Ins_AUC_0to30", "Glu_AUC_0to30", "InsSec30", "InsGenIn", "DIo", "CpepGenIn", "HOMA", "matsuda_4pt", "matsuda_3pt", "LTPA_duration_all", "LTPA_duration_cond", "LTPA_duration_noncond", "LTPA_energy_all", "LTPA_energy_cond", "LTPA_energy_noncond", "LTPA_energy_light", "LTPA_energy_moderate", "LTPA_energy_modvig", "LTPA_energy_vigorous", "sleep_biopsy", "totalcw", "sleep_24h")      
+
+phen0<-read_tsv("data/pbulk_covars.txt") %>% mutate(snrna_batch=paste0("B",batch)) %>% select(-batch) 
+
+heather<-read_csv("data/tissue.csv") %>% 
+	dplyr::rename(AGE=age_biopsy, INS=S_Insu, BMI=bmi, WHR=whr, GLU=glu_fast_biopsy) %>% 
+	mutate(T2D=ifelse(ogtt_status_paper=="T2D",1,ifelse(ogtt_status_paper=="NGT",0,NA))) %>% 
+	select(labelcode, area_name, all_of(traits), ogtt_status_paper)
+	
+p.pbulk<- merge(phen0, heather, by="labelcode")
+
+
+# read in muscle tissue proportions based on snRNA + snATAC nuclei, not including muscle fiber mixed
+prop<-readRDS("data/prop.both.nuc.Rds")  
+p.pbulk<-merge(p.pbulk,prop,by="labelcode")
+
+
+ct.pbulk<-as.data.frame(ct.pbulk) %>% dplyr::select(all_of(p.pbulk$labelcode)) %>% as.matrix()
+
+# 58962 genes, 279 people
+#check labelcode order is correct
+print(all.equal(colnames(ct.pbulk), p.pbulk$labelcode))
+saveRDS(p.pbulk,"data/phen_pbulk.Rds")
+saveRDS(ct.pbulk, "data/ct.pbulk.Rds")  # NOT FILTERED
+```
+
+
+
+

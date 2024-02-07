@@ -1,0 +1,272 @@
+---
+title: "DESeq2 negative binomial regression using gene count data in miRNA "
+output:
+  workflowr::wflow_html:
+    toc: true
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, dev=c('png'), include=F}
+knitr::opts_chunk$set(dev = c('png'))
+knitr::opts_chunk$set(autodep = TRUE)
+
+```
+
+```{r include=F}
+.libPaths("/net/snowwhite/home/aujackso/R/x86_64-pc-linux-gnu-library/4.0");
+library(dplyr) 
+library(readr)
+library(ggplot2)
+library(DESeq2) 
+#library(RColorBrewer)
+#library(grid)
+#library(gridExtra)
+library(knitr)
+library(stringr)
+options(scipen=1, digits=5)
+options(nwarnings=10000)
+
+invnorm = function(x, seed) {
+  set.seed(seed)
+  qnorm((rank(x, na.last="keep", ties.method="random") - 0.5) / sum(!is.na(x)))
+}
+
+traits<-c("SEX")      
+traits2<-c("SEX.M")   
+
+```
+Run muscle miRNA associations for Sex.
+Use older (mir) DESeq parameters (not for single cell).       
+Use Li's uniquely mapped miRNAs
+2023.05.02 - no longer using fiber type as covariates, so sample size is 290 -> 261 overlaping snRNA+snATAC nuclei proportions
+  
+```{r prep_data, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+library(edgeR)
+sn<-readRDS("data/prop.both.nuc.Rds") #279 snRNA samples
+
+bulk<-read_tsv("data/muscle_pheno_301mRNA.txt") #301 mRNA samples
+length(setdiff(sn$labelcode, bulk$labelcode)) #11
+length(setdiff(bulk$labelcode, sn$labelcode)) #33
+length(intersect(bulk$labelcode, sn$labelcode)) #268
+setdiff(sn$labelcode, bulk$labelcode) #11
+setdiff(bulk$labelcode, sn$labelcode) #33 in bulk not in snRNA...  
+#We resolved to not include 12004, 22011, 32071
+
+mir0<-read_tsv("data/muscle_pheno_290miRNA.txt") #290 miRNA samples
+sn<-readRDS("data/prop.both.nuc.Rds") #279 snRNA samples
+length(setdiff(sn$labelcode, mir0$labelcode)) #23
+length(setdiff(mir0$labelcode, sn$labelcode)) #34
+length(intersect(mir0$labelcode, sn$labelcode)) #256
+setdiff(sn$labelcode, mir0$labelcode)
+setdiff(mir0$labelcode, sn$labelcode)
+intersect(mir0$labelcode, sn$labelcode)
+
+p.mir<-merge(mir0,sn,by="labelcode") #256 samples with snRNA+snATAC nuclei  proportions
+
+mirexp0<-read_tsv("data/exceRpt_miRNA_ReadCounts.txt") %>% dplyr::rename(gene=...1) #2383 - but many don't map uniquely
+li.rpmmm<-read_tsv("data/li.mus.exceRpt.genes.paper.rpmmm.moltraits.bed.gz") #836 miRs
+mir.li<-mirexp0 %>% dplyr::slice(match(li.rpmmm$pid, gene)) #836 miRs
+
+mir.ct<-mir.li %>% select(-gene) %>% as.matrix()
+row.names(mir.ct)<-mir.li$gene
+cols<-gsub(".fastq","",colnames(mir.ct))
+cols1<-replace(cols, cols=="M12048.2_mi", "M12048_mi")
+cols2<-replace(cols1, cols1=="M12049.2_mi", "M12049_mi")
+cols<-replace(cols2, cols2=="M12148_mi_1", "M12148_mi")
+
+colnames(mir.ct)<-cols
+
+who.use<-intersect(cols, p.mir$sample) #256
+
+mir.use<-as.data.frame(mir.ct)%>% select(all_of(who.use)) %>% as.matrix() 
+mir.use<-round(mir.use,0)
+#836 genes, 256 samples
+
+p.use <- p.mir %>% dplyr::slice(match(who.use, sample))
+all.equal(colnames(mir.use), p.use$sample)
+
+
+#  also make a mir dataset filtered on at least 5 counts in at least 25% of samples
+library(edgeR)
+mir.exp<-DGEList(counts=mir.use)
+mir.sample_size <- ncol(mir.use)
+mir.keep<-rowSums(mir.exp$counts >=5) >= round(0.25*mir.sample_size)
+mir.filter<-mir.exp[mir.keep,]
+mir.genes<-rownames(mir.filter) #755 genes used in filtered dataset
+
+
+annot<-li.rpmmm %>% dplyr::rename(gene=pid, chr=`#chr`) %>% select(gene, chr, start, end, strand)
+
+```
+
+========   FILTERED FOR LOW COUNTS =====================================
+
+miR counts ~  AGE + as.factor(miRNA_batch) + as.factor(area_name) + as.factor(SEX)   
+```{r run_miR_deseq_filter, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+
+	pds <- p.use %>% 
+		dplyr::select(SEX, sample, age_biopsy, miRNA_batch, area_name) %>% 
+		dplyr::filter(complete.cases(.)) %>%
+		mutate(AGE=invnorm(age_biopsy,1))
+	
+	eds<-mir.filter
+
+	j=1
+	if (traits[j]=="SEX") {
+		fstr<-"~ AGE + as.factor(miRNA_batch) + as.factor(area_name) + as.factor(SEX) " 
+	}
+
+#  Using original DESeq mir settings
+	dds <- DESeqDataSetFromMatrix(countData = eds,
+            colData = pds, design = as.formula(fstr)) 
+	#dds<-scran::computeSumFactors(dds)   
+	#dds<-DESeq(dds, test="LRT",reduced=as.formula(redstr), useT=TRUE, minmu=1e-6, minReplicatesForReplace=Inf, fitType="local")  
+        #dds<-DESeq(dds, test="Wald", fitType="parametric",parallel=TRUE) 
+	dds<-estimateSizeFactors(dds)
+	dds<-estimateDispersions(dds) 
+        dds<-nbinomWaldTest(dds, maxit=1000)
+	stats<-mcols(dds) %>% as.data.frame() 
+	stats$gene=rownames(stats)
+	stats$data="mir.base"
+	stats$trait=traits[j]
+	converge<-stats %>% dplyr::select(gene, betaConv)
+	
+	res = as(results(dds), "data.frame") 
+	res$gene=rownames(res)
+	res$data="mir.base"
+	res$trait=traits2[j]
+	res$n=nrow(pds)
+	res<-merge(res,converge,by="gene")
+	
+res1<-merge(res, annot, by="gene") %>% arrange(pvalue)
+write.table(format(res1, digits=8), 
+file=paste0("~/sn_muscle_2023/output/DESeq.RNA/miR/miR.filter.755.base.",traits2[j],".results.tab"), sep="\t", quote=F, col.names=T, row.names=F)
+
+```
+
+
+```{r run_mir_deseq_celltype_filter, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+
+	pds <- p.use %>% 
+		dplyr::select(SEX, sample, age_biopsy, miRNA_batch, area_name, Type_2a, Type_2x, Adipocyte, Endothelial, Macrophage, Mesenchymal_Stem_Cell, Neuromuscular_junction, Neuronal, Satellite_Cell, Smooth_Muscle, T_cell) %>%
+		replace(is.na(.), 0) %>% 
+		mutate(AGE=invnorm(age_biopsy,1), TYPE2A = invnorm(Type_2a,3), TYPE2X=invnorm(Type_2x,3), ADI=invnorm(Adipocyte,3), ENDO=invnorm(Endothelial,3), MACRO=invnorm(Macrophage,3), MSC=invnorm(Mesenchymal_Stem_Cell,3), NMJ=invnorm(Neuromuscular_junction,3), NEUR=invnorm(Neuronal,3), SATEL=invnorm(Satellite_Cell,3), SM=invnorm(Smooth_Muscle,3), TC=invnorm(T_cell,3))
+	
+	eds<-mir.filter
+
+	j=1
+	if (traits[j]=="SEX") {
+		fstr<-"~  AGE + as.factor(miRNA_batch) + as.factor(area_name) + TYPE2A + TYPE2X + ADI + ENDO + MACRO + MSC + NMJ + NEUR + SATEL + SM + TC +  as.factor(SEX)" 
+	}
+
+#  Using original DESeq mir settings
+	dds <- DESeqDataSetFromMatrix(countData = eds,
+            colData = pds, design = as.formula(fstr)) 
+        #dds<-DESeq(dds, test="Wald", fitType="parametric",parallel=TRUE) 
+	dds<-estimateSizeFactors(dds)
+	dds<-estimateDispersions(dds) 
+        dds<-nbinomWaldTest(dds, maxit=1000)
+	stats<-mcols(dds) %>% as.data.frame() 
+	stats$gene=rownames(stats)
+	converge<-stats %>% dplyr::select(gene, betaConv)
+	
+	res = as(results(dds), "data.frame") 
+	res$gene=rownames(res)
+	res$data="mir.basecelltype"
+	res$trait=traits2[j]
+	res$n=nrow(pds)
+	res<-merge(res,converge,by="gene")
+	
+res1<-merge(res, annot, by="gene") %>% arrange(pvalue)
+		
+write.table(format(res1, digits=8), 
+file=paste0("~/sn_muscle_2023/output/DESeq.RNA/miR/miR.filter.755.basecelltype.",traits2[j],".results.tab"), sep="\t", quote=F, col.names=T, row.names=F)
+```
+
+
+
+
+
+Adding OGTT status as a covariate
+```{r run_miR_deseq_filter_ogtt_covar, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+
+	pds <- p.use %>% 
+		dplyr::select(SEX, sample, age_biopsy, miRNA_batch, area_name, ogtt_status_paper) %>% 
+		dplyr::filter(complete.cases(.)) %>%
+		mutate(AGE=invnorm(age_biopsy,1))
+	
+	eds<-mir.filter
+
+	j=1
+	if (traits[j]=="SEX") {
+		fstr<-"~ AGE + as.factor(miRNA_batch) + as.factor(area_name) + as.factor(ogtt_status_paper) +  as.factor(SEX) " 
+	}
+
+#  Using original DESeq mir settings
+	dds <- DESeqDataSetFromMatrix(countData = eds,
+            colData = pds, design = as.formula(fstr)) 
+	#dds<-scran::computeSumFactors(dds)   
+	#dds<-DESeq(dds, test="LRT",reduced=as.formula(redstr), useT=TRUE, minmu=1e-6, minReplicatesForReplace=Inf, fitType="local")  
+        #dds<-DESeq(dds, test="Wald", fitType="parametric",parallel=TRUE) 
+	dds<-estimateSizeFactors(dds)
+	dds<-estimateDispersions(dds) 
+        dds<-nbinomWaldTest(dds, maxit=1000)
+	stats<-mcols(dds) %>% as.data.frame() 
+	stats$gene=rownames(stats)
+	stats$data="mir.base"
+	stats$trait=traits[j]
+	converge<-stats %>% dplyr::select(gene, betaConv)
+	
+	res = as(results(dds), "data.frame") 
+	res$gene=rownames(res)
+	res$data="mir.base"
+	res$trait=traits2[j]
+	res$n=nrow(pds)
+	res<-merge(res,converge,by="gene")
+	
+res1<-merge(res, annot, by="gene") %>% arrange(pvalue)
+write.table(format(res1, digits=8), 
+file=paste0("~/sn_muscle_2023/output/DESeq.RNA/miR_ogtt_covar/miR.filter.755.base.",traits2[j],".results.tab"), sep="\t", quote=F, col.names=T, row.names=F)
+
+```
+
+
+```{r run_mir_deseq_celltype_filter_ogtt_covar, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+
+	pds <- p.use %>% 
+		dplyr::select(SEX, sample, age_biopsy, miRNA_batch, area_name, Type_2a, Type_2x, Adipocyte, Endothelial, Macrophage, Mesenchymal_Stem_Cell, Neuromuscular_junction, Neuronal, Satellite_Cell, Smooth_Muscle, T_cell, ogtt_status_paper) %>%
+		replace(is.na(.), 0) %>% 
+		mutate(AGE=invnorm(age_biopsy,1), TYPE2A = invnorm(Type_2a,3), TYPE2X=invnorm(Type_2x,3), ADI=invnorm(Adipocyte,3), ENDO=invnorm(Endothelial,3), MACRO=invnorm(Macrophage,3), MSC=invnorm(Mesenchymal_Stem_Cell,3), NMJ=invnorm(Neuromuscular_junction,3), NEUR=invnorm(Neuronal,3), SATEL=invnorm(Satellite_Cell,3), SM=invnorm(Smooth_Muscle,3), TC=invnorm(T_cell,3))
+	
+	eds<-mir.filter
+
+	j=1
+	if (traits[j]=="SEX") {
+		fstr<-"~  AGE + as.factor(miRNA_batch) + as.factor(area_name) + TYPE2A + TYPE2X + ADI + ENDO + MACRO + MSC + NMJ + NEUR + SATEL + SM + TC + as.factor(ogtt_status_paper) + as.factor(SEX)" 
+	}
+
+#  Using original DESeq mir settings
+	dds <- DESeqDataSetFromMatrix(countData = eds,
+            colData = pds, design = as.formula(fstr)) 
+        #dds<-DESeq(dds, test="Wald", fitType="parametric",parallel=TRUE) 
+	dds<-estimateSizeFactors(dds)
+	dds<-estimateDispersions(dds) 
+        dds<-nbinomWaldTest(dds, maxit=1000)
+	stats<-mcols(dds) %>% as.data.frame() 
+	stats$gene=rownames(stats)
+	converge<-stats %>% dplyr::select(gene, betaConv)
+	
+	res = as(results(dds), "data.frame") 
+	res$gene=rownames(res)
+	res$data="mir.basecelltype"
+	res$trait=traits2[j]
+	res$n=nrow(pds)
+	res<-merge(res,converge,by="gene")
+	
+res1<-merge(res, annot, by="gene") %>% arrange(pvalue)
+		
+write.table(format(res1, digits=8), 
+file=paste0("~/sn_muscle_2023/output/DESeq.RNA/miR_ogtt_covar/miR.filter.755.basecelltype.",traits2[j],".results.tab"), sep="\t", quote=F, col.names=T, row.names=F)
+```

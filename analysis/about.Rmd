@@ -1,0 +1,28 @@
+---
+title: "About"
+output:
+  workflowr::wflow_html:
+    toc: false
+editor_options:
+  chunk_output_type: console
+---
+
+## Types of association analyses 
+* single nuclei count association with physiological traits, overall and  by cell type  
+* snRNA gene expression association with physiological traits by cell type  
+* snATAC open chromatin association with physiological traits by cell type  
+* bulk mRNA (hg38) and pseudobulk gene expression associations with traits        
+
+## QC for Sarah Hanks' paper on sex     
+* Dropping "Muscle_Fiber_Mixed" nuclei    
+* Dropping 3 samples: 12004 (non-Finnish), 22011 and 32071 (female NGT first degree relatives of 2 other IGT samples)  
+* Dropping samples with < 100 nuclei in RNA or ATAC for proportions and proportion associations  
+* Dropping samples with < 100 RNA nuclei for gene expression analyses  
+* Dropping samples with < 100 ATAC nuclei for chromatin accessibility analyses  
+
+
+## Workflow  
+
+
+
+

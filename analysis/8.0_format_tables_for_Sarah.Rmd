@@ -1,0 +1,118 @@
+---
+title: "Format tables for Sarah for Excel"
+output:
+  workflowr::wflow_html:
+    toc: true
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, dev=c('png'), include=F}
+knitr::opts_chunk$set(dev = c('png'))
+knitr::opts_chunk$set(autodep = TRUE)
+
+```
+
+Differential gene expression by sex in muscle cell types (Anne makes- I am happy to help/contribute to any of these as needed, though)
+- One page per cell type
+- Columns = transcript ID, gene name, chromosome, mean count in samples, fold change of male to female counts, fold change standard error, p-value, FDR adjusted p-value
+- Ordered by p-value smallest to largest
+
+Differential gene expression by sex in bulk and pseudobulk muscle (Anne makes)
+- One page bulk, one page pseudobulk
+- Columns = transcript ID, gene name, chromosome, mean count in samples, fold change of male to female counts, fold change standard error, p-value, FDR adjusted p-value (same as previous-- could even be combined into the same table?)
+- Ordered by p-value smallest to largest
+
+Differential chromatin accessibility by sex in muscle cell types (Anne makes)
+- One page per cell type
+- Columns = peak name/coordinates, chromosome, mean count in samples, fold change of male to female counts, fold change standard error, p-value, FDR adjusted p-value
+- Ordered by p-value smallest to largest
+
+Differential miRNA expression by sex in bulk muscle (Anne or Abby makes)
+- Columns = miRNA name, chromosome, mean count in samples, fold change of male to female counts, fold change standard error, p-value, FDR adjusted p-value (anything else?)
+- Ordered by p-value smallest to largest 
+
+
+```{r include=F}
+.libPaths("/net/snowwhite/home/aujackso/R/x86_64-pc-linux-gnu-library/4.0");
+library(dplyr) 
+library(readr)
+library(stringr)
+
+```
+
+
+```{r diff_exp_celltype, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+
+
+celltype<-c("Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "Type_1", "Type_2a", "Type_2x")
+  
+for (i in 1:length(celltype)) {
+	res<-read_tsv(paste0("~/sn_muscle_2023/output/DESeq.RNA/final_drop10nuc/results/",celltype[i],".SEX.M.results.tab")) %>% select(gene, gene_name, chrom, baseMean, log2FoldChange, lfcSE, pvalue, padj) %>% arrange(pvalue) %>% as.data.frame()
+		
+write.table(format(res, digits=8), 
+file=paste0("output/Sarah_tables/DE_sex_",celltype[i],".tab"), sep="\t", quote=F, col.names=T, row.names=F)
+
+}
+
+```
+
+
+
+
+```{r diff_exp_bulk_pbulk_miR, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+
+
+#bulk
+res<-read_tsv("~/sn_muscle_2023/output/DESeq.RNA/bulk_adjprop/hg38.filter22323.bulk.SEX.M.results.tab") %>% select(gene, symbol, chr, baseMean, log2FoldChange, lfcSE, pvalue, padj) %>% arrange(pvalue) %>% as.data.frame()
+		
+write.table(format(res, digits=8), 
+file=paste0("output/Sarah_tables/DE_sex_bulk.tab"), sep="\t", quote=F, col.names=T, row.names=F)
+
+
+#pseudobulk
+res<-read_tsv("~/sn_muscle_2023/output/DESeq.RNA/pbulk_adjprop/pb.SEX.M.results.tab") %>% 
+	rename(symbol=gene_name) %>%
+	mutate(chr=gsub("chr","",chrom)) %>% 
+	select(gene, symbol, chr, baseMean, log2FoldChange, lfcSE, pvalue, padj) %>% 
+	arrange(pvalue) %>% as.data.frame()
+		
+write.table(format(res, digits=8), 
+file=paste0("output/Sarah_tables/DE_sex_pseudobulk.tab"), sep="\t", quote=F, col.names=T, row.names=F)
+
+R
+#miR
+res<-read_tsv("~/sn_muscle_2023/output/DESeq.RNA/miR/miR.filter.755.basecelltype.SEX.M.results.tab") %>% select(gene, chr, baseMean, log2FoldChange, lfcSE, pvalue, padj) %>% arrange(pvalue) %>% as.data.frame()
+		
+write.table(format(res, digits=8), 
+file=paste0("output/Sarah_tables/DE_sex_miR.tab"), sep="\t", quote=F, col.names=T, row.names=F)
+
+
+```
+
+
+
+```{r diff_CA_celltype, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+
+
+celltype<-c("Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "Type_1", "Type_2a", "Type_2x", "Adipocyte", "T_cell")
+  
+  
+for (i in 1:length(celltype)) {
+	res<-read_tsv(paste0("~/sn_muscle_2023/output/DESeq.ATAC/final_drop10nuc/results/",celltype[i],".SEX.M.results.tab")) %>% 
+	mutate(chrstr=word(peak, 1, sep=fixed(":"))) %>%
+	mutate(chr=gsub("chr","",chrstr)) %>% 
+	select(peak, chr, baseMean, log2FoldChange, lfcSE, pvalue, padj) %>% 
+	arrange(pvalue) %>% as.data.frame()
+		
+write.table(format(res, digits=8), 
+file=paste0("output/Sarah_tables/DCA_sex_",celltype[i],".tab"), sep="\t", quote=F, col.names=T, row.names=F)
+
+}
+
+```
+
+
+
+
