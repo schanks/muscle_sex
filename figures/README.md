@@ -1,4 +1,4 @@
-#Manuscript figures
+#Manuscript figures and secondary analyses
 
 [bulk](https://github.com/schanks/muscle_sex/blob/main/figures/bulk/README.md): Sex differences in bulk gene expression
 
