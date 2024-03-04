@@ -33,7 +33,7 @@ both$Chromosome[which(both$chr=="X")]="X"
 both$Chromosome[which(both$chr=="Y")]="Y"
 
 sigcolors=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd")
-a=ggplot(both, aes(x=bulksp, y=pbulksp, color=Significance, shape=Chromosome))+geom_point(size=0.8)+geom_vline(xintercept=0, linetype="dotted")+geom_hline(yintercept=0, linetype="dotted")+scale_x_continuous(limits=c(-100,100))+scale_y_continuous(limits=c(-100,100))+theme_bw()+scale_color_manual(values=sigcolors)+scale_shape_manual(values=c(16,17,18))+xlab("Bulk signed -log10 p-value")+ylab("Pseudobulk signed -log10 p-value")+theme(axis.title=element_text(size=7), axis.text=element_text(size=7), legend.title=element_text(size=7), legend.text=element_text(size=7), legend.position="right", plot.margin=unit(c(2,0.5,0.5,0.5), "lines"))+guides(color=guide_legend(nrow=4, keyheight=0.1, override.aes=list(size=1), title.position="top"), shape=guide_legend(keyheight=0.1,title.position="top",nrow=3, override.aes=list(size=1), order=2))
+a=ggplot(both, aes(x=bulksp, y=pbulksp, color=Significance, shape=Chromosome))+geom_point(size=0.8)+geom_vline(xintercept=0, linetype="dotted")+geom_hline(yintercept=0, linetype="dotted")+scale_x_continuous(limits=c(-100,100))+scale_y_continuous(limits=c(-100,100))+theme_bw()+scale_color_manual(values=sigcolors)+scale_shape_manual(values=c(16,2,5))+xlab("Bulk signed -log10 p-value")+ylab("Pseudobulk signed -log10 p-value")+theme(axis.title=element_text(size=7), axis.text=element_text(size=7), legend.title=element_text(size=7), legend.text=element_text(size=7), legend.position="right", plot.margin=unit(c(2,0.5,0.5,0.5), "lines"))+guides(color=guide_legend(nrow=4, keyheight=0.1, override.aes=list(size=1), title.position="top"), shape=guide_legend(keyheight=0.1,title.position="top",nrow=3, override.aes=list(size=1), order=2))
 
 #Panel C
 t1=fread("~/t1_out.txt")
@@ -49,7 +49,7 @@ bulk=fread("~/bulk_out.txt")
 bulk$cell=rep("Bulk", nrow(bulk))
 pbulk=fread("~/pseudo_out.txt")
 pbulk$cell=rep("P.bulk", nrow(pbulk))
-revigo=fread("goterm/revigo_bulk.txt")
+revigo=fread("~/muscle/bulk/goterm/revigo_bulk.txt")
 comp=rbind(t1[,c("Name","Direction","P-Value","FDR","cell","OddsRatio")], t2a[,c("Name","Direction","P-Value","FDR","cell","OddsRatio")], t2x[,c("Name","Direction","P-Value","FDR","cell","OddsRatio")],bulk[,c("Name","Direction","P-Value","FDR","cell","OddsRatio")],pbulk[,c("Name","Direction","P-Value","FDR","cell","OddsRatio")])
 comp$signedp=-log10(comp$`P-Value`)
 comp$signedp[which(comp$Direction=="down")]=-comp$signedp[which(comp$Direction=="down")]
@@ -88,7 +88,7 @@ row1=grid.arrange(a, cwlegend,widths=c(1.4,1))
 #Panels boxplots
 bulk=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/bulk_adjprop/hg38.filter22323.bulk.SEX.M.results.tab")
 bulk$fdr=p.adjust(bulk$pvalue, method="fdr")
-snrna=fread("../snrna/all.expr.results")
+snrna=fread("~/muscle/snrna/all.expr.results")
 snrna$sig=as.numeric(snrna$fdr<0.05)
 snrna$gene=unlist(strsplit(snrna$gene,"[.]"))[seq(1, nrow(snrna)*2, by=2)]
 pseudo=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/pbulk_adjprop/pb.SEX.M.results.tab")
@@ -131,7 +131,7 @@ snagg$Significance=factor(snagg$Significance, levels=c("Not sex-biased in fiber 
 cplot=aggregate(snagg$gene, by=list(snagg$Significance, snagg$Sig2), FUN=length)
 colnames(cplot)=c("Significance","Sig2","count")
 
-fplot=ggplot(cplot, aes(x=1.2,y=count, fill=Sig2))+geom_bar(width=0.4,stat="identity")+coord_flip()+theme_void()+theme(plot.margin=unit(c(5.5,5.5,5.5,35),"pt"),panel.grid=element_blank(),legend.position="none",axis.text.y=element_blank(), axis.ticks.y=element_blank(), axis.title.y=element_blank())+scale_x_continuous(limits=c(0.8,1.9))+scale_fill_manual(values=c("#bdbdbd","#984ea3","#1b9e77","#DB6D00","#FF9124"))+annotate("text",x=1.5,y=0, hjust=0,label="Fiber & bulk\nn=2,665", size=2.5)+annotate("text",x=1.5, y=2665, hjust=0,label="Fiber only\nn=2,463",size=2.5)+annotate("text",x=1.5,y=5150,hjust=0,label="Bulk only\nn=6,205",size=2.5)+annotate("text",x=1.5,y=11333,hjust=0,label="Neither\nn=14,067", size=2.5)+annotate("text",x=1.3,y=100,label="Concordant\nn=2,452",size=2,hjust=0)+annotate("text",x=1.1,y=2200,label="Discordant\nn=213",size=2,hjust=1)+annotate("segment",x=1.1,xend=1.1,y=2220,yend=2500,arrow=arrow(length=unit(3,"pt"),type="closed"))
+fplot=ggplot(cplot, aes(x=1.2,y=count, fill=Sig2))+geom_bar(width=0.4,stat="identity")+coord_flip()+theme_void()+theme(plot.margin=unit(c(5.5,5.5,5.5,0),"pt"),panel.grid=element_blank(),legend.position="none",axis.text.y=element_blank(), axis.ticks.y=element_blank(), axis.title.y=element_blank())+scale_x_continuous(limits=c(0.8,1.9))+scale_fill_manual(values=c("#bdbdbd","#984ea3","#1b9e77","#DB6D00","#FF9124"))+annotate("text",x=1.5,y=0, hjust=0,label="Fiber & bulk\n2,665", size=2.2)+annotate("text",x=1.5, y=2665, hjust=0,label="Fiber only\n2,463",size=2.2)+annotate("text",x=1.5,y=5150,hjust=0,label="Bulk only\n6,205",size=2.2)+annotate("text",x=1.5,y=11333,hjust=0,label="Neither\n14,067", size=2.2)+annotate("text",x=1.3,y=100,label="Concordant\nn=2,452",size=2,hjust=0)+annotate("text",x=1.1,y=2200,label="Discordant\nn=213",size=2,hjust=1)+annotate("segment",x=1.1,xend=1.1,y=2220,yend=2500,arrow=arrow(length=unit(3,"pt"),type="closed"))
 
 textdat=as.data.frame(matrix(c("Comparison group","Bulk","Fiber","Bulk","Fiber","Fiber","Bulk","N/A","N genes",170,170,12,12,101,154,193,"N concordant",150,150,9,3,62,123,"N/A","% concordant","88%","88%","75%","25%","61%","80%","N/A"),byrow=TRUE, ncol=8))
 
@@ -188,9 +188,35 @@ datplot$Group=datplot$Comparison
 datplot$Group[which(datplot$Direction=="N/A")]="N/A"
 datplot$Direction[which(datplot$Group=="N/A")]="Concordant"
 
-oplot=ggplot(datplot, aes(x=xpos, y=Count))+geom_col_pattern(position="fill",aes(color=Comparison,fill=Comparison,alpha=Group,pattern_density=Direction), pattern_color="black",pattern_size=0.2,pattern_fill=NA,pattern_spacing=0.04,pattern="crosshatch")+theme_bw()+scale_y_continuous(expand=expansion(add=c(0,0.1)))+theme(axis.title.y=element_text(size=7), axis.text.y=element_text(size=7),legend.title=element_text(size=7), legend.text=element_text(size=7),panel.grid.minor.x=element_blank(),panel.grid.major.x=element_blank(), panel.border=element_blank(),axis.text.x=element_blank(), axis.title.x=element_blank(), axis.ticks.x=element_blank(),legend.position="bottom")+ylab("Proportion of sex-biased genes\nin concordant/discordant direction")+scale_x_continuous(limits=c(0,25400))+scale_fill_manual(values=c("#AD71B5","#49B192"))+guides(fill=guide_legend(keyheight=1,keywidth=1))+scale_pattern_density_manual(values=c(0,0.6,0))+scale_color_manual(values=c("#AD71B5","#49B192"))+scale_alpha_manual(values=c(1,1,0))+guides(alpha="none")+guides(pattern_density=guide_legend(override.aes=c(fill="white",color="black")))+annotate("text",y=1.05,vjust=0,x=1150, size=3, label="170")+annotate("text",y=1.05,vjust=0,size=3, x=2450,label="12")+annotate("text",y=1.05,vjust=0,size=3, x=3900,label="101")+annotate("text",y=1.05,vjust=0,size=3, x=8250,label="154")+annotate("text",y=1.05,vjust=0,size=3, x=18350,label="193")
+oplot=ggplot(datplot, aes(x=xpos, y=Count))+geom_col_pattern(position="fill",aes(color=Comparison,fill=Comparison,alpha=Group,pattern_density=Direction), pattern_color="black",pattern_size=0.2,pattern_fill=NA,pattern_spacing=0.04,pattern="crosshatch")+theme_bw()+scale_y_continuous(expand=expansion(add=c(0,0.1)))+theme(axis.title.y=element_text(size=7), axis.text.y=element_text(size=7),legend.title=element_text(size=7), legend.text=element_text(size=7),panel.grid.minor.x=element_blank(),panel.grid.major.x=element_blank(), panel.border=element_blank(),axis.text.x=element_text(size=6), axis.title.x=element_blank(), axis.ticks.x=element_blank(),legend.position="bottom")+ylab("Proportion concordant/discordant\nsex-biased expression")+scale_x_continuous(limits=c(0,25400),breaks=c(-1000,1150,2450,3900,8250,18350),labels=c("N non-fiber\ngenes","170","12","101","154","193"))+scale_fill_manual(values=c("#AD71B5","#49B192"))+guides(fill=guide_legend(keyheight=1,keywidth=1))+scale_pattern_density_manual(values=c(0,0.6,0))+scale_color_manual(values=c("#AD71B5","#49B192"))+scale_alpha_manual(values=c(1,1,0))+guides(alpha="none")+guides(pattern_density=guide_legend(override.aes=c(fill="white",color="black")))
 
-row2=grid.arrange(fplot, oplot, heights=c(1,1))
+legenddat=as.data.frame(matrix(c("Fiber","Concordant","Significant","Fiber","Discordant","Significant","Fiber","NA","Not significant","Bulk","Concordant","Significant","Bulk","Discordant","Significant","Bulk","NA","Not significant"),ncol=3,byrow=TRUE))
+colnames(legenddat)=c("Comparison group","Directional concordance\nof non-fiber cell type","Fiber/bulk\nSignificance")
+legenddat$`Comparison group`=factor(legenddat$`Comparison group`, levels=c("Fiber","Bulk"))
+legenddat$`Directional concordance\nof non-fiber cell type`=factor(legenddat$`Directional concordance\nof non-fiber cell type`, levels=c("NA","Discordant","Concordant"))
+
+olegend=ggplot(legenddat, aes(x=`Comparison group`,y=`Directional concordance\nof non-fiber cell type`))+geom_tile_pattern(aes(fill=`Comparison group`, alpha=`Fiber/bulk\nSignificance`, pattern_density=`Directional concordance\nof non-fiber cell type`,color=`Comparison group`),pattern_color="black",pattern_size=0.2,pattern_fill=NA,pattern_spacing=0.04,pattern="crosshatch",width=0.8,height=0.8,size=0.7)+scale_fill_manual(values=c("#49B192","#AD71B5"))+scale_color_manual(values=c("#49B192","#AD71B5"))+scale_alpha_manual(values=c(0,1))+scale_pattern_density_manual(values=c(0,0.6,0))+theme_void()+theme(axis.text.x=element_blank(),axis.title.x=element_blank(),axis.ticks.x=element_blank(),axis.ticks.y=element_blank(),legend.position="none", plot.margin=unit(c(0,5.5,-5.5,50),"pt"))+scale_x_discrete(expand=c(2,3))+scale_y_discrete(expand=c(0.05,1.5))+annotate("text",y=3.5,vjust=0,x=1,size=2,label="                  Comparison group:\nFiber-type")+annotate("text",y=3.5,vjust=0,x=2,size=2, label="Bulk")+annotate("text",y=3.5,vjust=0.2,x=-0.25,size=2.2,label="Direction\n")+annotate("text",y=3.5,vjust=0,x=-1.5,size=2,label="Comparison group\nsig.")+annotate("text",y=3,x=-0.25,size=2,label="Concordant")+annotate("text",y=2,x=-0.25,size=2,label="Discordant")+annotate("text",y=1,x=-0.25,size=2,label="N/A")+annotate("text",y=3,x=-1.5,size=2,label="Significant")+annotate("text",y=2,x=-1.5,size=2,label="Significant")+annotate("text",y=1,x=-1.5,size=2,label="Not significant")
+
+
+oplot=oplot+theme(legend.position="none")
+oplot_legend=ggplot(datplot, aes(x=xpos,y=2))+theme_void()+scale_x_continuous(limits=c(0,20000))
+o=grid.arrange(oplot, olegend, heights=c(5,3))
+
+
+textf=ggplot(legenddat, aes(x=-1,y=1))+theme_void()+annotate("text", hjust=0,size=2.2,vjust=0.6,y=1,x=1,label="Sex-biased expression significance\nand directional concordance\nof fiber types with bulk\nfor 25,400 tested genes")+theme(plot.margin=unit(c(5.5,5.5,5.5,-100),"pt"))
+
+texto=ggplot(legenddat, aes(x=-1,y=1))+theme_void()+annotate("text",hjust=0,size=2.2,y=1,x=1,vjust=-0.5,label="Directional concordance of\n630 non-fiber cell type\nsex-biased genes\nwith fiber types (green)\nand bulk (purple)")+theme(plot.margin=unit(c(5.5,5.5,5.5,-100),"pt"))
+
+textpanelc=ggplot(legenddat, aes(x=1,y=1))+theme_void()+annotate("text",hjust=0.5, size=2.2, y=2,x=2,vjust=-0.6, label="Sig. in:\nN genes")+theme(plot.margin=unit(c(5.5,-5.5,5.5,5.5),"pt"))
+
+
+fplot=grid.arrange(textpanelc, fplot, widths=c(1,10))
+row2plot=grid.arrange(fplot, o, heights=c(1,1.4))
+
+
+row2text=grid.arrange(textf, texto, heights=c(1,1.4))
+
+row2=grid.arrange(row2plot, row2text, widths=c(4,1))
 
 tiff("~/plot.tiff", height=180, width=180, units="mm", res=300)
 grid.arrange(row1, row2, heights=c(1,1.3))
