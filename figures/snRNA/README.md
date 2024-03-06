@@ -1,6 +1,9 @@
 # Sex differences in cell type level gene expression
 
 ## Secondary analyses
+
+t1_downsample.R: Downsample Type 1 muscle fiber gene counts and samples to approximately the same number in other cell types
+
 genetype.R: Tested enrichment of differential expression by sex by gene type (protein-coding, lncRNA, pseudogene, other) adjusting for bins of gene count
 
 genetype_aut.R: Same as above for autosomal genes only
@@ -10,6 +13,7 @@ genetype_nocount.R: Tested enrichment of differential expression by sex by gene 
 genetype_nocount_aut.R: Same as above for autosomal genes only
 
 rna_enrich_prep.R: Inverse normalization of signed -log10 p-values of differential expression by sex in muscle fiber types for RNA Enrich analysis
+
 
 ## Figures
 figure2.R: Figure 2. Sex differences in cell type-specific gene expression in human skeletal muscle
