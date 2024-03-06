@@ -13,7 +13,9 @@ chromstate_female_nocount.R: Same as above using only female reference sample
 
 chromstate_male_nocount.R: Same as above using only male reference sample
 
-tfbs_overlap.R: Calculate overlap of ATAC-seq peaks with TFBS annotations
+tfbs_overlap.R: Annotate ATAC-seq peaks with overlapping TFBS
+
+peak_to_tss.R: Annotate genes with number of differentially accessible peaks upstream of TSS
 
 ## Figures
 figure4.R: Figure 4. Sex differences in cell-type specific chromatin accessibility in human skeletal muscle
