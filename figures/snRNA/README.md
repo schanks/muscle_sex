@@ -9,6 +9,8 @@ genetype_nocount.R: Tested enrichment of differential expression by sex by gene 
 
 genetype_nocount_aut.R: Same as above for autosomal genes only
 
+rna_enrich_prep.R: Inverse normalization of signed -log10 p-values of differential expression by sex in muscle fiber types for RNA Enrich analysis
+
 ## Figures
 figure2.R: Figure 2. Sex differences in cell type-specific gene expression in human skeletal muscle
 
