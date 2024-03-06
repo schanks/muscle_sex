@@ -17,6 +17,8 @@ tfbs_overlap.R: Annotate ATAC-seq peaks with overlapping TFBS
 
 peak_to_tss.R: Annotate genes with number of differentially accessible peaks upstream of TSS
 
+enrich_gene_peak.R: Calculate enrichment of differential expression by sex by number and direction of differentially accessible peaks upstream of TSS
+
 ## Figures
 figure4.R: Figure 4. Sex differences in cell-type specific chromatin accessibility in human skeletal muscle
 
