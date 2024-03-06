@@ -1,9 +1,17 @@
 # Sex differences in cell type level chromatin accessibility
 
 ##Secondary analyses
-chromstate.R: Tested enrichment of differential accessibility by sex by chromatin state adjusting for bins of peak count
+chromstate.R: Tested enrichment of differential accessibility by sex by chromatin state adjusting for bins of peak count using consensus states from the male and female reference samples
 
-chromstate_nocount.R: Tested enrichment of differential accessibility by sex by chromatin state without adjusting for bins of peak count
+chromstate_female.R: Same as above using only female reference sample
+
+chromstate_male.R: Same as above using only male reference sample
+
+chromstate_nocount.R: Tested enrichment of differential accessibility by sex by chromatin state without adjusting for bins of peak count using consensus states from the male and female reference samples
+
+chromstate_female_nocount.R: Same as above using only female reference sample
+
+chromstate_male_nocount.R: Same as above using only male reference sample
 
 ## Figures
 figure4.R: Figure 4. Sex differences in cell-type specific chromatin accessibility in human skeletal muscle
