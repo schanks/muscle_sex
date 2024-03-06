@@ -1,5 +1,14 @@
 # Sex differences in cell type level gene expression
 
+## Secondary analyses
+genetype.R: Tested enrichment of differential expression by sex by gene type (protein-coding, lncRNA, pseudogene, other) adjusting for bins of gene count
+
+genetype_aut.R: Same as above for autosomal genes only
+
+genetype_nocount.R: Tested enrichment of differential expression by sex by gene type (protein-coding, lncRNA, pseudogene, other) without adjusting for gene count
+
+genetype_nocount_aut.R: Same as above for autosomal genes only
+
 ## Figures
 figure2.R: Figure 2. Sex differences in cell type-specific gene expression in human skeletal muscle
 
