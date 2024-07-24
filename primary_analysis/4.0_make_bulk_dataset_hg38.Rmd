@@ -1,0 +1,165 @@
+---
+title: "prepare hg38 count for bulk, also phenotype dataset.  Also filter bulk and pseudobulk  genes to drop genes without 5 counts in at least 25% of samples.  And "
+output:
+  workflowr::wflow_html:
+    toc: true
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, dev=c('png'), include=F}
+knitr::opts_chunk$set(dev = c('png'))
+knitr::opts_chunk$set(autodep = TRUE)
+
+```
+
+```{r include=F}
+.libPaths("/net/snowwhite/home/aujackso/R/x86_64-pc-linux-gnu-library/4.0");
+library(dplyr) 
+library(readr)
+library(ggplot2)
+library(DESeq2) 
+library(edgeR)
+#library(RColorBrewer)
+#library(grid)
+#library(gridExtra)
+library(knitr)
+library(stringr)
+options(scipen=1, digits=5)
+options(nwarnings=10000)
+
+invnorm = function(x, seed) {
+  set.seed(seed)
+  qnorm((rank(x, na.last="keep", ties.method="random") - 0.5) / sum(!is.na(x)))
+}
+
+traits<-c("SEX")      
+traits2<-c("SEX.M")   
+
+```
+Run bulk and pbulk limited to Type_1 samples, using DESeq, For bulk use typical bulk base covariates, base + 3 fiber type proportions, base + snRNA cell type proportions.  
+Use older DESeq parameters (not for single cell).       
+
+Restrict to Type_1 samples and genes in pseudobulk  
+
+#  BULK mRNA    
+```{r prep_data_bulk, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+
+pbulk0<-read_tsv("data/pbulk_counts.allgenes.txt") %>% 
+	mutate(nodot=word(gene, sep=fixed("."))) #58962, 58917 are unique
+bulk0<-read_tsv("data/freeze6_20230122.muscle.analysis.counts.dat.gz") #67130
+length(unique(bulk0$gene)) #67130 all uniq ENSG (61102 have uniq symbols)
+
+#############################################################################
+###  AFTER DISCUSSING WITH SARAH H - we decided to stick with only those genes that could be mapped to Arushi's gencode hg38 v30 version i.e. 58629 bulk genes!!!
+#############################################################################
+bulk.gene<-intersect(pbulk0$nodot, bulk0$gene) #58629
+
+# NO FILTERING SO FAR based on 5 counts in 25% of samples
+ct.bulk<-bulk0 %>% dplyr::slice(match(bulk.gene, gene)) %>% 
+	 select(-chrom, -start, -end, -strand, -type, -status, -length, -gccontent, -symbol, -gene) %>% 
+	as.matrix()
+rownames(ct.bulk)<-bulk.gene
+
+# merge new TIN for hg38 info info file
+info.RIN<-read_tsv("data/freeze5_muscle_info.analysis.tin.tsv") %>% filter(use_me>0) %>% as.data.frame()
+# replace missing RIN for one sample with average over all samples
+info.RIN[info.RIN$labelcode=="32065",]$rin = 8.374
+info.RIN<-info.RIN %>% 
+	select(-tin_median, -tin_mean, -tin_stdev)
+info.TIN<-read_tsv("data/freeze6_20230122.adipose_muscle.analysis.tin.txt") %>%
+	dplyr::rename(tin_mean='TIN(mean)', tin_median='TIN(median)', tin_stdev='TIN(stdev)') %>%
+	select(analysis_id, tin_mean, tin_median, tin_stdev)
+info<-merge(info.RIN, info.TIN, by="analysis_id")
+# make columns labelcode in counts, ensure order same with slice(match())
+info<- info %>% dplyr::slice(base::match(colnames(ct.bulk), analysis_id))
+colnames(ct.bulk) <- info$labelcode
+
+# limit to those with snRNA
+#set of people to be used in analysis,  made in 0_nuclei_composition.Rmd
+who.use.rna<-readRDS("data/df.rna.nuc.Rds")%>% pull(labelcode) 
+
+who.use<-intersect(who.use.rna, info$labelcode)
+length(who.use) #268
+
+p.bulk<-info %>% dplyr::slice(base::match(who.use, labelcode))
+site<-read_csv("data/tissue.csv") %>% select(labelcode, area_name)
+p.bulk<- merge(p.bulk, site, by="labelcode")
+
+
+# read in qorts covars
+sample.map<-read_tsv("data/freeze5_muscle_info.analysis.tin.tsv") %>% filter(use_me>0) %>% select(sample, analysis_id)
+qorts<-read_tsv("data/freeze6_muscle_adipose_qorts_by_sample.tsv") %>%
+	 tibble::column_to_rownames(var="FIELD") %>% 
+	 t() %>% as.data.frame() %>% 
+	 tibble::rownames_to_column("sample") %>%
+	 filter(substring(sample,1,1)=="M") %>% #282 samples
+        select(sample, GC_byRead_Mean, InsertSize_Median) 
+qorts.both<-merge(sample.map, qorts, by.x="analysis_id", by.y="sample", all.x=T) %>% select(-sample)
+p.bulk<-merge(p.bulk,qorts.both,by="analysis_id") %>% #268
+	mutate(mrna_batch=paste0("B",batch)) %>%
+	select(-batch)
+# read in muscle tissue proportions based on snRNA + snATAC nuclei, not including muscle fiber mixed
+prop<-readRDS("data/prop.both.nuc.Rds")
+p.bulk<-merge(p.bulk,prop,by="labelcode")
+
+#restrict count data to samples with snRNA, in same order as phenotypes p.bulk
+ct.bulk<-as.data.frame(ct.bulk) %>% dplyr::select(all_of(who.use)) %>% as.matrix()
+
+#check labelcode order is correct for all 268 samples
+print(all.equal(colnames(ct.bulk), p.bulk$labelcode))
+
+saveRDS(p.bulk, "data/phen.bulk.Rds")
+saveRDS(ct.bulk,"data/bulk.hg38.counts.Rds")
+
+
+annot.sn0<-read_tsv("data/gencode.v30.gene_lengths_tss.tsv") %>% 
+	mutate(chr=gsub("chr","",chrom)) %>% 
+	dplyr::rename(start=gene_start, end=gene_end, symbol=gene_name, strand=gene_strand) %>% 
+	select(gene_id, chr, start, end, strand, symbol, gene_type) #58870
+
+annot.sn<- annot.sn0 %>% 
+	mutate(gene=word(gene_id, sep=fixed("."))) %>% 
+	select(gene, chr, start, end, strand, symbol, gene_type) 
+annot.sn<-annot.sn %>% distinct(gene, .keep_all=TRUE)  #58825
+saveRDS(annot.sn, "data/annot.sn.Rds")
+```
+
+
+=========   FILTER FOR LOW COUNTS =====================================
+	#  Drop genes missing 5 counts in at least 25% of samples
+```{r prep_ds_filter, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+p.bulk<-readRDS("data/phen.bulk.Rds")
+ct.bulk <-readRDS("data/bulk.hg38.counts.Rds")
+
+p.pbulk<-readRDS("data/phen_pbulk.Rds") #279 samples
+
+
+library(edgeR)
+pbulk0<-read_tsv("data/pbulk_counts.allgenes.txt") 
+pbulk0.ct<-pbulk0 %>% select(-gene) %>% as.matrix()
+row.names(pbulk0.ct)<-pbulk0$gene
+pbulk.exp<-DGEList(counts=pbulk0.ct)
+pbulk.sample_size <- ncol(pbulk0.ct)
+pbulk.keep<-rowSums(pbulk.exp$counts >=5) >= round(0.25*pbulk.sample_size)
+pbulk.filter<-pbulk.exp[pbulk.keep,] #18674 genes, 279 samples
+pbulk.genes.filter<-rownames(pbulk.filter) 
+
+
+
+bulk.exp<-DGEList(counts=ct.bulk)
+bulk.sample_size <- ncol(ct.bulk)
+bulk.keep<-rowSums(bulk.exp$counts >=5) >= round(0.25*bulk.sample_size)
+bulk.filter<-bulk.exp[bulk.keep,] 
+bulk.genes.filter<-rownames(bulk.filter) #22323 genes (out of 58629) ,all uniq nodot
+
+pbulk.nodot<-word(pbulk.genes.filter,1, sep=fixed("."))
+length(intersect(bulk.genes.filter, pbulk.nodot)) #15722 in common
+
+pbulk.filt<-as.matrix(pbulk.filter[[1]]) #18674 genes, 279 samples
+bulk.filt<-as.matrix(bulk.filter[[1]])   #22323 genes, 268 samples
+saveRDS(pbulk.filt, "data/ct.pbulk.filt.Rds")
+saveRDS(bulk.filt, "data/ct.bulk.filt.Rds")
+
+```

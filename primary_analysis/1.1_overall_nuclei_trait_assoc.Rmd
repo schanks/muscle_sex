@@ -1,0 +1,627 @@
+---
+title: "Negative binomial regression for total (not cell specific) RNA + ATAC nuclei count data, using invnorm traits"
+output:
+  workflowr::wflow_html:
+    toc: true
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, dev=c('png'), include=F}
+knitr::opts_chunk$set(dev = c('png'))
+knitr::opts_chunk$set(autodep = TRUE)
+
+```
+
+
+```{r include=F}
+.libPaths("/net/snowwhite/home/aujackso/R/x86_64-pc-linux-gnu-library/4.0");
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(broom)
+library(MASS)
+options(scipen=1, digits=5)
+options(nwarnings=10000)
+library(scales)
+library(grid)
+library(gridExtra)
+library(kableExtra)
+
+invnorm = function(x, seed) {
+  set.seed(seed)
+  qnorm((rank(x, na.last="keep", ties.method="random") - 0.5) / sum(!is.na(x)))
+}
+
+```
+
+
+```{r functions, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+
+run_nb_invnorm<-function(ds0,trt,trt2, type) {
+	print(paste0(trt, " " , type ))
+	temp<- ds0 %>% dplyr::select(-labelcode) 
+	tot.nuc<-rowSums(temp, na.rm=T)
+	labelcode<-ds0$labelcode
+	temp.totnuc<-cbind.data.frame(labelcode, tot.nuc)
+	temp.phen<-merge(temp.totnuc, trait.ds, by="labelcode")
+	temp.phen<-dplyr::slice(temp.phen, match(ds0$labelcode, labelcode)) 
+	if (trt == "SEX") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, age_biopsy, area_name, batch, trt, tot.nuc) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	  # fstr<-paste0("tot.nuc ~ agescale + BATCH + area_name + x + offset(log(tot.nuc))") 
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(BATCH) + as.factor(area_name) + x") 
+	}   
+	if (trt == "age_biopsy") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, area_name, batch, trt, tot.nuc) %>%
+		mutate(BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("tot.nuc ~ as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + x") 
+	}   
+	if (trt == "T2D") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	  # fstr<-paste0("tot.nuc ~ agescale + BATCH + area_name + x + offset(log(tot.nuc))") 
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + x") 
+	}   
+	if (!(trt %in% c("SEX", "age_biopsy", "T2D"))) {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc) %>%
+		dplyr::filter(complete.cases(.)) %>% 
+		dplyr::mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + x") 
+	   phen$agescale=scale(phen$age_biopsy)	
+	}
+	nb<-glm.nb(as.formula(fstr), data=phen)
+	#pois<-glm(as.formula(fstr), family="poisson", data=df)
+	#ll<-pchisq(2*(logLik(nb) - logLik(pois)), df=1, lower.tail=FALSE)
+	#print(ll)
+	res<-tidy(nb) %>% filter(substr(term,1,1)=="x")
+	# res is for the last variable in the design
+	res$trait=trt2
+	res$type=type
+	res$n=nrow(phen)
+	return(res)
+}
+
+run_nb_invnorm_bmi<-function(ds0,trt,trt2, type) {
+	print(paste0(trt, " " , type ))
+	temp<- ds0 %>% dplyr::select(-labelcode) 
+	tot.nuc<-rowSums(temp, na.rm=T)
+	labelcode<-ds0$labelcode
+	temp.totnuc<-cbind.data.frame(labelcode, tot.nuc)
+	temp.phen<-merge(temp.totnuc, trait.ds, by="labelcode")
+	temp.phen<-dplyr::slice(temp.phen, match(ds0$labelcode, labelcode)) 
+	if (trt == "SEX") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, age_biopsy, area_name, batch, trt, tot.nuc, bmi) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(BATCH) + as.factor(area_name)  + bmi + x") 
+	}   
+	if (trt == "age_biopsy") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, area_name, batch, trt, tot.nuc, bmi) %>%
+		mutate(BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("tot.nuc ~ as.factor(SEX) + as.factor(BATCH) + as.factor(area_name)  + bmi + x") 
+	}   
+	if (trt == "T2D") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc, bmi) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	  # fstr<-paste0("tot.nuc ~ agescale + BATCH + area_name + x + offset(log(tot.nuc))") 
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + bmi + x") 
+	}   
+	if (!(trt %in% c("SEX", "age_biopsy", "T2D"))) {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc, bmi) %>%
+		dplyr::filter(complete.cases(.)) %>% 
+		dplyr::mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + bmi + x") 
+	   phen$agescale=scale(phen$age_biopsy)	
+	}
+	nb<-glm.nb(as.formula(fstr), data=phen)
+	#pois<-glm(as.formula(fstr), family="poisson", data=df)
+	#ll<-pchisq(2*(logLik(nb) - logLik(pois)), df=1, lower.tail=FALSE)
+	#print(ll)
+	res<-tidy(nb) %>% filter(substr(term,1,1)=="x")
+	# res is for the last variable in the design
+	res$trait=trt2
+	res$type=type
+	res$n=nrow(phen)
+	return(res)
+}
+
+run_nb_invnorm_ins<-function(ds0,trt,trt2, type) {
+	print(paste0(trt, " " , type ))
+	temp<- ds0 %>% dplyr::select(-labelcode) 
+	tot.nuc<-rowSums(temp, na.rm=T)
+	labelcode<-ds0$labelcode
+	temp.totnuc<-cbind.data.frame(labelcode, tot.nuc)
+	temp.phen<-merge(temp.totnuc, trait.ds, by="labelcode")
+	temp.phen<-dplyr::slice(temp.phen, match(ds0$labelcode, labelcode)) 
+	if (trt == "SEX") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, age_biopsy, area_name, batch, trt, tot.nuc, S_Insu) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(BATCH) + as.factor(area_name)  + log(S_Insu) + x") 
+	}   
+	if (trt == "age_biopsy") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, area_name, batch, trt, tot.nuc, S_Insu) %>%
+		mutate(BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("tot.nuc ~ as.factor(SEX) + as.factor(BATCH) + as.factor(area_name)  + log(S_Insu) + x") 
+	}   
+	if (trt == "T2D") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc, S_Insu) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	  # fstr<-paste0("tot.nuc ~ agescale + BATCH + area_name + x + offset(log(tot.nuc))") 
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + log(S_Insu) + x") 
+	}   
+	if (!(trt %in% c("SEX", "age_biopsy", "T2D"))) {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc, S_Insu) %>%
+		dplyr::filter(complete.cases(.)) %>% 
+		dplyr::mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + log(S_Insu) + x") 
+	   phen$agescale=scale(phen$age_biopsy)	
+	}
+	nb<-glm.nb(as.formula(fstr), data=phen)
+	#pois<-glm(as.formula(fstr), family="poisson", data=df)
+	#ll<-pchisq(2*(logLik(nb) - logLik(pois)), df=1, lower.tail=FALSE)
+	#print(ll)
+	res<-tidy(nb) %>% filter(substr(term,1,1)=="x")
+	# res is for the last variable in the design
+	res$trait=trt2
+	res$type=type
+	res$n=nrow(phen)
+	return(res)
+}
+
+run_nb_invnorm_ogtt<-function(ds0,trt,trt2, type) {
+	print(paste0(trt, " " , type ))
+	temp<- ds0 %>% dplyr::select(-labelcode) 
+	tot.nuc<-rowSums(temp, na.rm=T)
+	labelcode<-ds0$labelcode
+	temp.totnuc<-cbind.data.frame(labelcode, tot.nuc)
+	temp.phen<-merge(temp.totnuc, trait.ds, by="labelcode")
+	temp.phen<-dplyr::slice(temp.phen, match(ds0$labelcode, labelcode)) 
+	if (trt == "SEX") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, age_biopsy, area_name, batch, trt, tot.nuc, ogtt_status_paper) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(BATCH) + as.factor(area_name)  + as.factor(ogtt_status_paper) + x") 
+	}   
+	if (trt == "age_biopsy") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, area_name, batch, trt, tot.nuc, ogtt_status_paper) %>%
+		mutate(BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("tot.nuc ~ as.factor(SEX) + as.factor(BATCH) + as.factor(area_name)  + as.factor(ogtt_status_paper) + x") 
+	}   
+	if (trt == "T2D") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc, ogtt_status_paper) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	  # fstr<-paste0("tot.nuc ~ agescale + BATCH + area_name + x + offset(log(tot.nuc))") 
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + as.factor(ogtt_status_paper) + x") 
+	}   
+	if (!(trt %in% c("SEX", "age_biopsy", "T2D"))) {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc, ogtt_status_paper) %>%
+		dplyr::filter(complete.cases(.)) %>% 
+		dplyr::mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("tot.nuc ~ agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + as.factor(ogtt_status_paper) + x") 
+	   phen$agescale=scale(phen$age_biopsy)	
+	}
+	nb<-glm.nb(as.formula(fstr), data=phen)
+	#pois<-glm(as.formula(fstr), family="poisson", data=df)
+	#ll<-pchisq(2*(logLik(nb) - logLik(pois)), df=1, lower.tail=FALSE)
+	#print(ll)
+	res<-tidy(nb) %>% filter(substr(term,1,1)=="x")
+	# res is for the last variable in the design
+	res$trait=trt2
+	res$type=type
+	res$n=nrow(phen)
+	return(res)
+}
+
+
+dotplot<- function(ds, trtstr, pthresh) {
+	myColors = c("black", "blue", "red")
+	names(myColors) <- c("No assoc", "Negative assoc", "Positive assoc")
+
+	ds<-ds %>% 
+		mutate(psig=ifelse(padj>=pthresh,"No assoc",
+		ifelse(statistic<0,"Negative assoc", "Positive assoc")))
+
+	return(ggplot(ds, aes(x=celltype, y=estimate, color=psig)) + 
+	geom_point(size=2) + 
+  	theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) + 
+  	geom_errorbar(aes(ymin=estimate-1.96*(std.error), ymax=estimate+1.96*(std.error))) + 
+	scale_colour_manual(values=myColors)  + 
+	geom_hline(yintercept=0, colour="gray") + 
+  	ggtitle(paste0(trtstr)) + 
+	facet_wrap(~modality, strip.position="left", dir="v")
+	)
+}
+
+dotplot_celltype<-function(ds, cellstr,pthresh,ylim) {
+	myColors = c("black", "blue", "red")
+	names(myColors) <- c("No assoc", "Negative assoc", "Positive assoc")
+
+	ds<-ds %>% 
+		mutate(psig=ifelse(padj>=pthresh,"No assoc",
+		ifelse(statistic<0,"Negative assoc", "Positive assoc")))
+
+return(ggplot(ds, aes(x=trait, y=estimate, color=psig)) + 
+	geom_point(size=2) + 
+  	theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) + 
+  	geom_errorbar(aes(ymin=estimate-1.96*(std.error), ymax=estimate+1.96*(std.error))) + 
+	scale_colour_manual(values=myColors)  + 
+	geom_hline(yintercept=0, colour="gray") + 
+  	ggtitle(paste0(cellstr, " NUCLEI")) +
+	facet_wrap(~modality, strip.position="left", dir="v")	
+	)
+}
+
+dotplot_type_rnaatac<-function(ds, types, pthresh,ymin, ymax, sz) {
+	myColors = c("black", "blue", "red")
+	names(myColors) <- c("No assoc", "Negative assoc", "Positive assoc")
+
+	temp<-ds %>% filter(type %in% all_of(types))  %>%
+		mutate(psig=ifelse(padj>=pthresh,"No assoc",
+		ifelse(statistic<0,"Negative assoc", "Positive assoc")))
+
+   return(
+	ggplot(temp, aes(x=trait, y=estimate, color=psig)) + 
+	geom_point(size=2) + 
+  	theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5, size=sz)) + 
+  	geom_errorbar(aes(ymin=estimate-1.96*(std.error), ymax=estimate+1.96*(std.error))) + 
+	ylim(ymin,ymax) + 
+	scale_colour_manual(values=myColors)  + 
+	theme(legend.position="none") + 
+	geom_hline(yintercept=0, colour="gray") + 
+	facet_wrap(~type, strip.position="right", dir="v")	
+   )
+}
+
+
+pplot_type_rnaatac<-function(ds, types, pthresh,ymin, ymax, sz) {
+	myColors = c("black", "blue", "red")
+	names(myColors) <- c("No assoc", "Negative assoc", "Positive assoc")
+
+	temp<-ds %>% filter(type %in% all_of(types))  %>%
+		mutate(psig=ifelse(padj>=pthresh,"No assoc",
+		ifelse(statistic<0,"Negative assoc", "Positive assoc")))
+
+   return(
+	ggplot(temp, aes(x=trait, y=-log10(padj), color=psig)) + 
+	geom_point(size=2) + 
+  	theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5, size=sz)) + 
+	ylim(ymin,ymax) + 
+	scale_colour_manual(values=myColors)  + 
+	theme(legend.position="none") + 
+	geom_hline(yintercept=0, colour="gray") + 
+	facet_wrap(~type, strip.position="right", dir="v")	
+   )
+}
+
+ 
+```
+
+ 
+
+Using 279 samples with >=100 RNA and >=100 ATAC nuclei for RNA and both.  
+For ATAC, using 281 samples with >=100 ATAC nuclei  
+
+
+```{r make_phen, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}			
+## Make phenotype dataset for DESEq2
+ds0 = read_tsv("/net/csgspare2/spare1/muscle_singlenuclei/hg38/fusion_plus_multiome_cluster_info/cluster_info_qc.tsv", guess_max=480000) %>% 
+   	rename(labelcode=SNG.1ST) %>% 
+	filter(cohort=="FUSION") %>%
+	filter(!(labelcode %in% c("12004", "22011", "32071"))) %>% 
+	filter(coarse_cluster_name != "Muscle_Fiber_Mixed")
+	
+batch<-ds0 %>% dplyr::select(labelcode, batch) %>% unique()
+heather<- read_csv("data/tissue.csv") 
+
+trait.ds <- heather %>%  mutate(T2D=ifelse(ogtt_status_paper=="T2D",1,ifelse(ogtt_status_paper=="NGT",0,NA)))
+#518 samples in heather
+
+trait.ds<-merge(batch, trait.ds, by="labelcode") #284 samples
+
+use1<-readRDS("data/df.both.nuc.Rds")  %>% pull(labelcode)
+trait.ds1 <- trait.ds %>% slice(match(use1, labelcode))
+saveRDS(trait.ds1, "data/trait.ds.279.Rds") #279 samples
+
+# for atac with 2 more samples...
+use2<-readRDS("data/df.atac.nuc.Rds")  %>% pull(labelcode)
+trait.ds2 <- trait.ds %>% slice(match(use2, labelcode))
+saveRDS(trait.ds2, "data/trait.ds.281.Rds") #281 samples
+
+```
+
+
+##  SEX only  
+Neg Binomial model: total nuclei counts ~ age.scaled + batch + area_name + SEX   
+NO SIGNIFICANT ASSOCIATION!!!  
+
+```{r sex_negbinom_output, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE, results='asis'}
+
+df.both.nuc<-readRDS("data/df.both.nuc.Rds")
+df.rna.nuc<-readRDS("data/df.rna.nuc.Rds") 
+df.atac.nuc<-readRDS("data/df.atac.nuc.Rds") 
+trait.ds<-readRDS("data/trait.ds.281.Rds") # atac samples but can be used for both and rna too since match on df.*.nuc samples
+
+
+traits<-c("SEX")      
+traits2<-c("SEX.M") 
+  
+ i<-1
+  
+  out<-data.frame()
+  res.both<-run_nb_invnorm(df.both.nuc, traits[i], traits2[i], "rna+atac")
+   out<-res.both
+
+   res.rna<-run_nb_invnorm(df.rna.nuc, traits[i], traits2[i], "rna") 
+   out<-rbind.data.frame(out, res.rna)
+
+   res.atac<-run_nb_invnorm(df.atac.nuc, traits[i], traits2[i], "atac") 
+   out<-rbind.data.frame(out, res.atac)
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_overall_SEXonly_noFDR.Rds")
+out<-out %>% dplyr::select(type, trait, estimate, std.error, p.value, n)  
+print(kable(out) %>% kable_styling(bootstrap_options=c("striped", "condensed"), full_width=F))
+```
+
+
+
+```{r make_negbinom_output_invnorm, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+out<-data.frame()
+
+df.both.nuc<-readRDS("data/df.both.nuc.Rds")
+df.rna.nuc<-readRDS("data/df.rna.nuc.Rds") 
+df.atac.nuc<-readRDS("data/df.atac.nuc.Rds") 
+trait.ds<-readRDS("data/trait.ds.281.Rds") # atac samples but can be used for both and rna too since match on df.*.nuc samples
+
+#65 traits including binary SEX and T2D
+  
+ traits<-c("SEX", "age_biopsy", "T2D", "S_Insu", "bmi",  "glu_fast_biopsy", "HEIGHT", "WEIGHT", "WAIST", "whr", "HIP", "S_ALAT", "S_hs_CRP", "fS_Kol", "fS_Kol_HDL", "fS_Kol_LDL_c", "fS_Trigly", "GL30", "GL60", "GL120", "S_LipoA1", "S_LipoB", "fS_C_pept", "fS_Krea", "S_GT", "S_Uraat", "fS_C_pept_30", "S_Insu_30", "B_GHb_A1C", "glu_2h_biopsy", "daily_energy_expenditure", "total_daily_physical_activity", "moderate_physical_activity", "strenuous_physical_activity",  "p_insu", "p_insu_30", "p_insu_60", "p_insu_120", "RFM", "sbp", "dbp", "ApoB_A1_ratio", "Ins_AUC_0to30", "Glu_AUC_0to30", "InsSec30", "InsGenIn", "DIo", "CpepGenIn", "HOMA", "matsuda_4pt", "matsuda_3pt", "LTPA_duration_all", "LTPA_duration_cond", "LTPA_duration_noncond", "LTPA_energy_all", "LTPA_energy_cond", "LTPA_energy_noncond", "LTPA_energy_light", "LTPA_energy_moderate", "LTPA_energy_modvig", "LTPA_energy_vigorous", "sleep_biopsy", "totalcw", "sleep_24h", "GL0")      
+traits2<-c("SEX.M", "AGE", "T2D", "INSFAST", "BMI", "GLUFAST", "HEIGHT", "WEIGHT", "WAIST", "WHR", "HIP", "ALAT", "CRP", "CHOL", "HDL", "LDL", "TG", "GL30", "GL60", "GL120", "APOA1", "APOB", "CPEP", "CREAT", "GT", "URIC", "CPEP30", "S_INS30", "HBA1C", "GLU2H", "ENERGY", "PA_TOT", "PA_MOD", "PA_STREN", "INS0", "INS30", "INS60", "INS120", "RFM", "SBP", "DBP", "APOB.A1.RATIO", "INS_AUC_0_30", "GLU_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG", "SLEEP", "ALCOHOL", "SLEEP24H", "GL0")   
+ 
+   out<-data.frame()
+   tempout<-data.frame()
+   for (i in 1:length(traits)) {
+	res.both<-run_nb_invnorm(df.both.nuc, traits[i], traits2[i], "rna+atac")
+	if (i==1) {tempout=res.both} else {tempout=rbind.data.frame(tempout,res.both)}
+   }
+   #make B-H adjustment across traits
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-tempout
+
+
+   tempout<-data.frame()
+   for (i in 1:length(traits)) {
+	res.rna<-run_nb_invnorm(df.rna.nuc, traits[i], traits2[i], "rna") 
+	if (i==1) {tempout=res.rna} else {tempout=rbind.data.frame(tempout,res.rna)}
+   }
+   #make B-H adjustment across traits
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-rbind.data.frame(out, tempout)
+
+   tempout<-data.frame()
+   for (i in 1:length(traits)) {
+	res.atac<-run_nb_invnorm(df.atac.nuc, traits[i], traits2[i],"atac") 
+	if (i==1) {tempout=res.atac} else {tempout=rbind.data.frame(tempout,res.atac)}
+	}
+   #make B-H adjustment across traits
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-rbind.data.frame(out, tempout)
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_overall.Rds")
+```
+
+##  Neg Binomial model: nuclei counts ~ age.scaled + sex + batch + area_name + trait.invnorm    
+Dot plots are the neg binomial estimates +/- 1.96*SE   
+Red/blue 'significant' represents B-H q<.05, calculated across 65 traits within each type (rna, atac, rna+atac)
+
+```{r nucleus_type_traits_invnorm, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="nb estimates or p-values for each invnorm trait, per nucleus type"}
+
+types1<-c("rna", "atac", "rna+atac")
+
+df<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_overall.Rds")
+df$trait<-factor(df$trait, levels=c("HEIGHT", "BMI", "HIP", "RFM", "WAIST", "WEIGHT", "WHR", "CHOL", "HDL", "LDL", "TG", "APOA1", "APOB", "APOB.A1.RATIO", "GLUFAST", "GL0", "GL30", "GL60", "GL120", "GLU_AUC_0_30", "GLU2H",  "HBA1C", "T2D", "INSFAST", "INS0", "S_INS30", "INS30", "INS60", "INS120", "CPEP", "CPEP30", "INS_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "CRP", "CREAT", "GT", "ALAT", "URIC", "SBP", "DBP", "ENERGY",  "PA_TOT", "PA_MOD", "PA_STREN", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG",  "SLEEP", "SLEEP24H", "ALCOHOL", "SEX.M", "AGE"))
+dot.base1<-dotplot_type_rnaatac(df,types1,0.05,-.25,0.25, 6)
+dot.base<-dotplot_type_rnaatac(df,types1,0.05,-.25,0.3, 4) #for comparison plots in code chunk nucleus_type_traits_invnorm_bmi
+pv.base<-pplot_type_rnaatac(df,types1,0.05,0,4, 6)
+print(dot.base1)
+print(pv.base)
+```
+
+
+##  Adjusting for BMI  
+Neg Binomial model: nuclei counts ~ age.scaled + sex + batch + area_name + BMI + trait.invnorm    
+```{r make_negbinom_output_invnorm_bmi, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+out<-data.frame()
+
+df.both.nuc<-readRDS("data/df.both.nuc.Rds")
+df.rna.nuc<-readRDS("data/df.rna.nuc.Rds") 
+df.atac.nuc<-readRDS("data/df.atac.nuc.Rds") 
+trait.ds<-readRDS("data/trait.ds.281.Rds") # atac samples but can be used for both and rna too since match on df.*.nuc samples
+traits.nobmi<-traits[traits !="bmi"]
+traits2.nobmi<-traits2[traits2 !="BMI"]
+  
+   out<-data.frame()
+   tempout<-data.frame()
+   for (i in 1:length(traits.nobmi)) {
+	res.both<-run_nb_invnorm_bmi(df.both.nuc, traits.nobmi[i], traits2.nobmi[i], "rna+atac")
+	if (i==1) {tempout=res.both} else {tempout=rbind.data.frame(tempout,res.both)}
+   }
+   #make B-H adjustment across traits
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-tempout
+
+
+   tempout<-data.frame()
+   for (i in 1:length(traits.nobmi)) {
+	res.rna<-run_nb_invnorm_bmi(df.rna.nuc, traits.nobmi[i], traits2.nobmi[i], "rna") 
+	if (i==1) {tempout=res.rna} else {tempout=rbind.data.frame(tempout,res.rna)}
+   }
+   #make B-H adjustment across traits
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-rbind.data.frame(out, tempout)
+
+   tempout<-data.frame()
+   for (i in 1:length(traits.nobmi)) {
+	res.atac<-run_nb_invnorm_bmi(df.atac.nuc, traits.nobmi[i], traits2.nobmi[i], "atac") 
+	if (i==1) {tempout=res.atac} else {tempout=rbind.data.frame(tempout,res.atac)}
+	}
+   #make B-H adjustment across traits
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-rbind.data.frame(out, tempout)
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_overall_adjbmi.Rds")
+```
+
+```{r nucleus_type_traits_invnorm_bmi, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="nb estimates for each invnorm trait, per nucleus type, adjusted for bmi"}
+
+types1<-c("rna", "atac", "rna+atac")
+
+df<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_overall_adjbmi.Rds")
+df$trait<-factor(df$trait, levels=c("HEIGHT", "BMI", "HIP", "RFM", "WAIST", "WEIGHT", "WHR", "CHOL", "HDL", "LDL", "TG", "APOA1", "APOB", "APOB.A1.RATIO", "GLUFAST", "GL0", "GL30", "GL60", "GL120", "GLU_AUC_0_30", "GLU2H",  "HBA1C", "T2D", "INSFAST", "INS0", "S_INS30", "INS30", "INS60", "INS120", "CPEP", "CPEP30", "INS_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "CRP", "CREAT", "GT", "ALAT", "URIC", "SBP", "DBP", "ENERGY",  "PA_TOT", "PA_MOD", "PA_STREN", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG",  "SLEEP", "SLEEP24H", "ALCOHOL", "SEX.M", "AGE"))
+dot.bmi<-dotplot_type_rnaatac(df,types1,0.05,-.25,0.3, 4)
+print(grid.arrange(dot.base, dot.bmi, nrow=1, ncol=2))
+#pv.bmi<-pplot_type_rnaatac(df,types1,0.05,0,4, 4)
+#print(grid.arrange(pv.base, pv.bmi, nrow=1, ncol=2))
+```
+
+
+
+
+##  Adjusting for fasting insulin kills associations with total nuclei    
+Neg Binomial model: nuclei counts ~ age.scaled + sex + batch + area_name + log(S_Insu) + trait.invnorm   
+```{r make_negbinom_output_invnorm_ins, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+out<-data.frame()
+
+df.both.nuc<-readRDS("data/df.both.nuc.Rds")
+df.rna.nuc<-readRDS("data/df.rna.nuc.Rds") 
+df.atac.nuc<-readRDS("data/df.atac.nuc.Rds") 
+trait.ds<-readRDS("data/trait.ds.281.Rds")
+traits.noins<-traits[traits !="S_Insu"]
+traits2.noins<-traits2[traits2 !="INSFAST_SERUM"]
+  
+   out<-data.frame()
+   tempout<-data.frame()
+   for (i in 1:length(traits.noins)) {
+	res.both<-run_nb_invnorm_ins(df.both.nuc, traits.noins[i], traits2.noins[i], "rna+atac")
+	if (i==1) {tempout=res.both} else {tempout=rbind.data.frame(tempout,res.both)}
+   }
+   #make B-H adjustment across traits, within cell type
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-tempout
+
+
+   tempout<-data.frame()
+   for (i in 1:length(traits.noins)) {
+	res.rna<-run_nb_invnorm_ins(df.rna.nuc, traits.noins[i], traits2.noins[i], "rna") 
+	if (i==1) {tempout=res.rna} else {tempout=rbind.data.frame(tempout,res.rna)}
+   }
+   #make B-H adjustment across traits, within cell type
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-rbind.data.frame(out, tempout)
+
+   tempout<-data.frame()
+   for (i in 1:length(traits.noins)) {
+	res.atac<-run_nb_invnorm_ins(df.atac.nuc, traits.noins[i], traits2.noins[i], "atac") 
+	if (i==1) {tempout=res.atac} else {tempout=rbind.data.frame(tempout,res.atac)}
+	}
+   #make B-H adjustment across traits, within cell type
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-rbind.data.frame(out, tempout)
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_overall_adjins.Rds")
+```
+
+```{r nucleus_type_traits_invnorm_ins, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="left: all samples, base model, right: all samples, with log(fasting insulin) covariate "}
+types1<-c("rna", "atac", "rna+atac")
+
+
+df<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_overall_adjins.Rds")
+df$trait<-factor(df$trait, levels=c("HEIGHT", "BMI", "HIP", "RFM", "WAIST", "WEIGHT", "WHR", "CHOL", "HDL", "LDL", "TG", "APOA1", "APOB", "APOB.A1.RATIO", "GLUFAST", "GL0", "GL30", "GL60", "GL120", "GLU_AUC_0_30", "GLU2H",  "HBA1C", "T2D", "INSFAST", "INS0", "S_INS30", "INS30", "INS60", "INS120", "CPEP", "CPEP30", "INS_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "CRP", "CREAT", "GT", "ALAT", "URIC", "SBP", "DBP", "ENERGY",  "PA_TOT", "PA_MOD", "PA_STREN", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG",  "SLEEP", "SLEEP24H", "ALCOHOL", "SEX.M", "AGE"))
+dot.ins<- dotplot_type_rnaatac(df,types1,0.05,-.7,0.6, 4)
+pv.ins<-pplot_type_rnaatac(df,types1,0.05,0,4, 4)
+print(grid.arrange(dot.base, dot.ins, nrow=1, ncol=2))
+#print(grid.arrange(pv.base, pv.ins, nrow=1, ncol=2))
+
+```
+
+
+
+
+
+
+##  Adjusting for ogtt status :  matsuda index becomes significant in positive direction
+Neg Binomial model: nuclei counts ~ age.scaled + sex + batch + area_name + as.factor(ogtt_status_paper) + trait.invnorm   
+```{r make_negbinom_output_invnorm_ogtt, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+
+df.both.nuc<-readRDS("data/df.both.nuc.Rds")
+df.rna.nuc<-readRDS("data/df.rna.nuc.Rds") 
+df.atac.nuc<-readRDS("data/df.atac.nuc.Rds") 
+trait.ds<-readRDS("data/trait.ds.281.Rds")
+traits.no.ogtt<-traits[traits !="T2D"]
+traits2.no.ogtt<-traits2[traits2 !="T2D"]
+  
+   out<-data.frame()
+   tempout<-data.frame()
+   for (i in 1:length(traits.no.ogtt)) {
+	res.both<-run_nb_invnorm_ogtt(df.both.nuc, traits.no.ogtt[i], traits2.no.ogtt[i], "rna+atac")
+	if (i==1) {tempout=res.both} else {tempout=rbind.data.frame(tempout,res.both)}
+   }
+   #make B-H adjustment across traits, within cell type
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-tempout
+
+
+   tempout<-data.frame()
+   for (i in 1:length(traits.no.ogtt)) {
+	res.rna<-run_nb_invnorm_ogtt(df.rna.nuc, traits.no.ogtt[i], traits2.no.ogtt[i], "rna") 
+	if (i==1) {tempout=res.rna} else {tempout=rbind.data.frame(tempout,res.rna)}
+   }
+   #make B-H adjustment across traits, within cell type
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-rbind.data.frame(out, tempout)
+
+   tempout<-data.frame()
+   for (i in 1:length(traits.no.ogtt)) {
+	res.atac<-run_nb_invnorm_ogtt(df.atac.nuc, traits.no.ogtt[i], traits2.no.ogtt[i], "atac") 
+	if (i==1) {tempout=res.atac} else {tempout=rbind.data.frame(tempout,res.atac)}
+	}
+   #make B-H adjustment across traits, within cell type
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   out<-rbind.data.frame(out, tempout)
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_overall_adjogtt.Rds")
+```
+
+```{r nucleus_type_traits_invnorm_ogtt, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=TRUE, eval=TRUE, results='hide', fig.cap="left: all samples, base model, right: all samples, with ogtt_status_paper covariate "}
+types1<-c("rna", "atac", "rna+atac")
+
+
+df<-readRDS("output/nuclei_nb/nb_nuclei_invnorm_overall_adjogtt.Rds")
+df$trait<-factor(df$trait, levels=c("HEIGHT", "BMI", "HIP", "RFM", "WAIST", "WEIGHT", "WHR", "CHOL", "HDL", "LDL", "TG", "APOA1", "APOB", "APOB.A1.RATIO", "GLUFAST", "GL0", "GL30", "GL60", "GL120", "GLU_AUC_0_30", "GLU2H",  "HBA1C", "T2D", "INSFAST", "INS0", "S_INS30", "INS30", "INS60", "INS120", "CPEP", "CPEP30", "INS_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "CRP", "CREAT", "GT", "ALAT", "URIC", "SBP", "DBP", "ENERGY",  "PA_TOT", "PA_MOD", "PA_STREN", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG",  "SLEEP", "SLEEP24H", "ALCOHOL", "SEX.M", "AGE"))
+dot.ogtt<- dotplot_type_rnaatac(df,types1,0.05,-.25,0.3, 4)
+#pv.ogtt<-pplot_type_rnaatac(df,types1,0.05,0,4, 4)
+print(grid.arrange(dot.base, dot.ogtt, nrow=1, ncol=2))
+
+```
+
+

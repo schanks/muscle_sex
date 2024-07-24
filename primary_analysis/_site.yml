@@ -1,0 +1,21 @@
+name: sn_muscle_2023
+output_dir: ../public
+navbar:
+  title: sn_muscle_2023
+  left:
+  - text: Home
+    href: index.html
+  - text: About
+    href: about.html
+  - text: License
+    href: license.html
+  right:
+  - icon: fab fa-gitlab
+    text: Source code
+    href: https://gitlab.com/aujackso/sn_muscle_2023
+output:
+  workflowr::wflow_html:
+    toc: yes
+    toc_float: yes
+    theme: cosmo
+    highlight: textmate

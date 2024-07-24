@@ -1,0 +1,47 @@
+---
+title: "Analysis using hg38 data"
+site: workflowr::wflow_site
+output:
+  workflowr::wflow_html:
+    toc: false
+editor_options:
+  chunk_output_type: console
+---
+   
+[Initial sample selection based on nuclei counts and cell type proportions](0_nuclei_composition.html)  
+&nbsp;        
+[Overall nuclei ~ trait associations using negative binomial - not cell type specific](1.1_overall_nuclei_trait_assoc.html).  Traits are inverse normalized.       
+&nbsp; 
+Trait definitions for 62 quantitative traits and 2 dicohotomous traits (SEX.M, T2D) are [here](2.4_annotate_results.html)   
+&nbsp;   
+[Cell type specific nuclei ~ trait associations using negative binomial](1.2_celltype_nuclei_trait_assoc.html).  Traits are inverse normalized.      
+&nbsp;      
+[DE current: Cell type specific expression ~ trait associations using negative binomial](2.1_deseq_snRNA.html)    
+[Compare DE current to DE using additional covariates](2.2_deseq_snRNA_compare_covars.html) of total nuclei, total deseq counts, total UMI     
+[Compare DE current to DE original model (no covariate for total nuclei for sample)](2.3_deseq_snRNA_compare_orig_covars.html), as well as to DE dropping celltype-specific outliers based on celltype proportion Z-scores and to DE restricting to samples with over 10 nuclei     
+&nbsp;   
+[Annotate DE results with chromosome and position information](2.4_annotate_results.html)   
+[Check into fgSEA input files](2.5_fGSEA_snRNA.html)   
+&nbsp;   
+&nbsp;   
+[(OLD) Compare lm vs deseq for hg19 and hg38](2.6_compare_lm_deseq_hg19_hg38.html)    
+[Compare lm vs deseq vs limma for hg19 and hg38](2.6a_run_TEST_lm_deseq_hg19_hg38.html), using same TEST datasets of overlapping genes and samples    
+&nbsp;   
+&nbsp;   
+[Cell type specific ATAC peaks ~ trait associations using negative binomial](3.1_deseq_snATAC.html)     
+[Compare differential ATAC - trait associations dropping outliers or restricting to > 10 nuclei](3.2_deseq_snATAC_compare_covars.html)  
+
+
+&nbsp;   
+&nbsp;
+We decided to analyze only samples with >10 nuclei in a celltype.
+
+Sarah wanted to know if using the manual glm.nb function instead of DESeq made a difference, as well as median count rather than total count as the offset.  Also looking at power via downsampled datasets.   [4.0_sex_inflatedp](4.0_sex_inflatedp.html)  
+
+&nbsp;
+Ran deseq for Dan using hg19 gene counts
+[5.0_deseq_snRNA_hg19](5.0_deseq_snRNA_hg19.html)  
+
+&nbsp;
+Ran bulk and pseudobulk for Sarah using DESeq2 for bulk
+[6.0_bulk_pbulk_deseq](6.0_bulk_pbulk_deseq.html)  

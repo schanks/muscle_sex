@@ -1,0 +1,195 @@
+---
+title: "DESeq2 negative binomial regression using gene count data in GTEX bulk,in hg38."
+output:
+  workflowr::wflow_html:
+    toc: true
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, dev=c('png'), include=F}
+knitr::opts_chunk$set(dev = c('png'))
+knitr::opts_chunk$set(autodep = TRUE)
+
+```
+
+
+```{r include=F}
+.libPaths("/net/snowwhite/home/aujackso/R/x86_64-pc-linux-gnu-library/4.0");
+library(dplyr) 
+library(readr)
+library(ggplot2)
+library(DESeq2) 
+library(edgeR)
+#library(RColorBrewer)
+#library(grid)
+#library(gridExtra)
+library(knitr)
+library(stringr)
+options(scipen=1, digits=5)
+options(nwarnings=10000)
+
+invnorm = function(x, seed) {
+  set.seed(seed)
+  qnorm((rank(x, na.last="keep", ties.method="random") - 0.5) / sum(!is.na(x)))
+}
+
+
+#  Argh need to update R https://bioconductor.org/packages/release/bioc/html/IRanges.html
+```
+Run bulk using bulk DESeq. using original DESeq parameters (not for single cell).       
+Restrict to samples in snRNA since using cell type proportions as covariates
+Limit genes to those with at least 5 counts in at least 25% of samples
+
+=========   FILTER FOR LOW COUNTS =====================================
+#  Drop genes missing 5 counts in at least 25% of samples
+```{r prep_ds_filter, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+
+attrib0<-read_tsv("data/gtex/GTEx_Analysis_v8_Annotations_SampleAttributesDS.txt") %>% filter(SMTS=="Muscle") %>% mutate(SUBJID=word(SAMPID, start=1,end=2, sep=fixed("-"))) %>% select(SUBJID, SMRIN, SMNABTCH, SMCENTER, SAMPID)
+length(unique(attrib0$SUBJID))
+#attrib has 1132 SAMPIDs but only 854 uniq SUBJIDs initially
+
+phen<-read_tsv("data/gtex/GTEx_Analysis_v8_Annotations_SubjectPhenotypesDS.txt") %>% select(SUBJID, SEX, AGE, DTHHRDY) 
+#980 subjects
+
+
+ct.gtex <-read_tsv("data/gtex/gene_reads_muscle_skeletal.gct", skip=2)
+
+# counts has 56200 genes for 803 SAMPIDs
+who.gtex<-colnames(ct.gtex)[4:ncol(ct.gtex)]
+# limit attrib to the 803
+attrib<- attrib0 %>% dplyr::slice(match(who.gtex, SAMPID))
+length(unique(attrib$SUBJID))
+
+gtex_phen0<-left_join(attrib, phen, by="SUBJID")
+all.equal(gtex_phen0$SAMPID, who.gtex)
+
+
+table(gtex_phen0$SEX, useNA='ifany')
+#  1   2 
+#543 260
+table(gtex_phen0$AGE, useNA='ifany')
+#20-29 30-39 40-49 50-59 60-69 70-79 
+#   67    65   124   255   264    28 
+table(gtex_phen0$DTHHRDY, useNA='ifany')
+#   0    1    2    3    4 <NA> 
+# 424   31  203   46   87   12 
+summary(gtex_phen0$SMRIN)
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+   5.50    7.70    8.00    7.94    8.40    9.90 
+
+length(unique(gtex_phen0$SMNABTCH))
+#  344 levels... 1-7 samples per batch
+
+table(gtex_phen0$SMCENTER, useNA='ifany')
+#  B1   C1   D1 <NA> 
+# 548  251    3    1 
+
+
+gtex_phen <- gtex_phen0 %>% filter(complete.cases(.))
+#  But only 790 with complete covariates - 12 were missing DTHHRDY death classification and 1 missing CENTER
+
+table(gtex_phen$SEX, useNA='ifany')
+#  1   2 
+#534 256
+table(gtex_phen$AGE, useNA='ifany')
+#20-29 30-39 40-49 50-59 60-69 70-79 
+#   67    64   122   250   261    26 
+table(gtex_phen$DTHHRDY, useNA='ifany')
+#  0   1   2   3   4 
+#423  31 203  46  87 
+summary(gtex_phen$SMRIN)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#   5.50    7.70    8.00    7.94    8.40    9.90 
+
+length(unique(gtex_phen$SMNABTCH))
+#  338 levels... 1-7 samples per batch
+
+table(gtex_phen$SMCENTER, useNA='ifany')
+# B1  C1  D1 
+#538 249   3 
+
+
+gtex_phen<-gtex_phen %>% dplyr::rename(sexn=SEX) %>% mutate(SEX=ifelse(sexn==1,"M","F"))
+
+saveRDS(gtex_phen, "data/gtex.phen.Rds")
+
+
+
+exp0<-ct.gtex %>% select(gtex_phen$SAMPID) %>% as.matrix()
+#id is number 0+, Name is Ensembl gene ID, Description is gene symbol
+row.names(exp0)<-ct.gtex$Name
+
+gtex.exp<-DGEList(counts=exp0) #56200
+gtex.sample_size <- ncol(exp0) #790
+gene.keep<-rowSums(gtex.exp$counts >=5) >= round(0.25*gtex.sample_size) #T/F
+gtex.filter<-gtex.exp[gene.keep,] 
+gtex.genes.filter<-rownames(gtex.filter) 
+
+gtex.filt<-as.matrix(gtex.filter[[1]])
+saveRDS(gtex.filt, "data/gtex.filt.Rds")
+#22211 genes, 790 samples
+
+```
+
+		
+
+## Base covariates model FILTERING FOR LOW COUNTS     
+Count ~ Sex + Age(AGE)  + Hardy Scale(DTHHRDY) (these three from phenotype file) + SMRIN + SMNABTCH + SMCENTER (these three from the attributes file)
+
+```{r run_bulk_deseq_base_filter}
+	
+	
+eds<-gtex.filt
+
+pds <- gtex_phen 
+#fstr<-"~  as.factor(AGE) + as.factor(DTHHRDY) + RIN + as.factor(SMNABTCH) + as.factor(SMCENTER) +  as.factor(SEX)" 
+#drop batch since get 'Model matrix not full rank' errors from DESeq2
+fstr<-"~  as.factor(AGE) + as.factor(DTHHRDY) + RIN + as.factor(SMCENTER) +  as.factor(SEX)" 
+
+#inverse normalize covariates based on available trait
+pds<-pds %>% 
+	mutate(RIN=invnorm(SMRIN,1)) 
+all.equal(colnames(gtex.filt), pds$SAMPID)
+
+#  Using original DESeq bulk settings
+dds <- DESeqDataSetFromMatrix(countData = eds,
+       colData = pds, design = as.formula(fstr)) 
+	#dds<-scran::computeSumFactors(dds)   
+	#dds<-DESeq(dds, test="LRT",reduced=as.formula(redstr), useT=TRUE, minmu=1e-6, minReplicatesForReplace=Inf, fitType="local")  
+        #dds<-DESeq(dds, test="Wald", fitType="parametric",parallel=TRUE) 
+dds<-estimateSizeFactors(dds)
+dds<-estimateDispersions(dds) 
+dds<-nbinomWaldTest(dds, maxit=1000)
+stats<-mcols(dds) %>% as.data.frame() 
+stats$gene=rownames(stats)
+converge<-stats %>% dplyr::select(gene, betaConv)
+	
+res = as(results(dds), "data.frame") 
+res$gene=rownames(res)
+res$data="gtex"
+res$trait="SEX"
+res$n=nrow(pds)
+res<-merge(res,converge,by="gene")
+	 
+	# annotation from Arushi for our hg38 muscle data
+	annot.sn0<-read_tsv("data/gencode.v30.gene_lengths_tss.tsv") %>% 
+		mutate(chr=gsub("chr","",chrom)) %>% 
+		dplyr::rename(start=gene_start, end=gene_end, symbol=gene_name, strand=gene_strand, gene=gene_id) %>% 
+		select(gene, chr, start, end, symbol, strand, gene_type)
+	test.res<-merge(res, annot.sn0, by="gene") 
+	#ick! - only 11195 merged out of 22211 have annotation!  GTEX ensembl ID not the same as our snRNA
+	
+#  Using non-dotted Ensembl gene IDs since that's what we used to match up our bulk muscle hg38 data
+annot.sn<-readRDS("~/sn_muscle_2023/data/annot.sn.Rds") %>% select(-strand)
+res1<-res %>% mutate(nodot=word(gene,1,sep=fixed(".")))	
+res2<-merge(res1, annot.sn, by.x="nodot", by.y="gene", all.x=T) %>% arrange(pvalue) %>% select(-nodot)
+#22109 out of 22211 have annotation -much better
+
+write.table(format(res2, digits=8), 
+file=paste0("~/sn_muscle_2023/output/DESeq.RNA/gtex/hg38.filter22211.790gtex.SEX.M.results.tab"), sep="\t", quote=F, col.names=T, row.names=F)
+
+
+```
+

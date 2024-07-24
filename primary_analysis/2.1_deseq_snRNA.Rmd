@@ -1,0 +1,145 @@
+---
+title: "DESeq2 negative binomial regression using gene count data"
+output:
+  workflowr::wflow_html:
+    toc: true
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, dev=c('png'), include=F}
+knitr::opts_chunk$set(dev = c('png'))
+knitr::opts_chunk$set(autodep = TRUE)
+
+```
+
+ 
+```{r include=F}
+.libPaths("/net/snowwhite/home/aujackso/R/x86_64-pc-linux-gnu-library/4.0");
+library(dplyr) 
+library(readr)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(knitr)
+options(scipen=1, digits=5)
+options(nwarnings=10000)
+
+invnorm = function(x, seed) {
+  set.seed(seed)
+  qnorm((rank(x, na.last="keep", ties.method="random") - 0.5) / sum(!is.na(x)))
+}
+
+scatterp<-function(ds, trait, xstr, ystr) {		
+Mycolors = c("#a6cee3", "#1f78b4", "#8dd3c7", "#b2df8a", "#33a02c",
+           "#6a3d9a","#fb9a99", "#fdbf6f", "#cab2d6", "#b15928", "#e31a1c", 
+           "#ffff33","#999999")
+	return(
+	ggplot(ds, aes(x=sgnp_deseq, y=sgnp_calc, color=cell)) + 
+		geom_point() + 
+		theme(axis.title=element_text(size=10)) +
+		geom_abline(slope=1, intercept=0, colour="gray") + 
+		ggtitle(paste0(trait)) + 
+		xlab(xstr) + 
+		ylab(ystr) +
+		#coord_cartesian(xlim=c(min(temp),max(temp)), ylim=c(min(temp),max(temp)) ) + 
+		theme_bw() + 
+		scale_colour_manual(values=Mycolors)  + 
+		theme(legend.position="none") + 
+		#theme(axis.text.x=element_text(angle=0, size=12)) + 
+		#theme(axis.text.y=element_text(size=12)) + 
+		geom_hline(yintercept=0, colour="black", size=0.1) + 
+		geom_vline(xintercept=0, colour="black", size=0.1) +  
+		facet_wrap(~cell, scales="free") +
+	theme(strip.text.x=element_text(size=8))
+
+        )
+}
+
+trtfactor=c("HEIGHT", "BMI", "HIP", "RFM", "WAIST", "WEIGHT", "WHR", "CHOL", "HDL", "LDL", "TG", "APOA1", "APOB", "APOB.A1.RATIO", "GLUFAST", "GL30", "GL60", "GL120", "GLU_AUC_0_30", "GLU2H",  "HBA1C", "T2D", "INSFAST", "INS0", "S_INS30", "INS30",
+ "INS60", "INS120", "CPEP", "CPEP30", "INS_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "CRP", "CREAT", "GT", "ALAT", "URIC", "SBP", "DBP", "ENERGY",  "PA_TOT", "PA_MOD", "PA_STREN", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND",
+  "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG",  "SLEEP", "SLEEP24H", "ALCOHOL", "SEX.M", "AGE")
+
+barplot_fdr<-function(ds, yvar, ystr, titlestr){	
+myColors <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
+ "#D55E00", "#CC79A7", "#999999")
+ 	ds$trait<-factor(ds$trait, levels=trtfactor)
+	return(ggplot(data=ds, aes(x=trait, y=yvar, fill=model)) + 
+	geom_bar(stat='identity', position=position_dodge(),width=1) + 
+	theme(strip.text.x=element_text(size=8)) + 
+	labs(x="TRAIT", y=ystr) + 
+	ggtitle(label=paste0(titlestr))  + 
+	theme(axis.text.x=element_text(size=10),legend.position="bottom") + 
+	scale_fill_manual(values=myColors) + 
+	theme(axis.text.x=element_text(angle=90, hjust=1, vjust=0.5))
+ )
+}
+
+#11/15/2022 DROPPING Muscle_Fiber_Mixed - 
+celltype<-c("Adipocyte", "Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "T_cell", "Type_1", "Type_2a", "Type_2x")
+traits<-c("SEX", "AGE", "T2D", "INS", "BMI",  "GLU", "HEIGHT", "WEIGHT", "WAIST", "WHR", "HIP", "S_ALAT", "S_hs_CRP", "fS_Kol", "fS_Kol_HDL", "fS_Kol_LDL_c", "fS_Trigly", "GL0", "GL30", "GL60", "GL120", "S_LipoA1", "S_LipoB", "fS_C_pept", "fS_Krea", "S_GT", "S_Uraat", "fS_C_pept_30", "S_Insu_30", "B_GHb_A1C", "glu_2h_biopsy", "daily_energy_expenditure", "total_daily_physical_activity", "moderate_physical_activity", "strenuous_physical_activity",  "p_insu", "p_insu_30", "p_insu_60", "p_insu_120", "RFM", "sbp", "dbp", "ApoB_A1_ratio", "Ins_AUC_0to30", "Glu_AUC_0to30", "InsSec30", "InsGenIn", "DIo", "CpepGenIn", "HOMA", "matsuda_4pt", "matsuda_3pt", "LTPA_duration_all", "LTPA_duration_cond", "LTPA_duration_noncond", "LTPA_energy_all", "LTPA_energy_cond", "LTPA_energy_noncond", "LTPA_energy_light", "LTPA_energy_moderate", "LTPA_energy_modvig", "LTPA_energy_vigorous", "sleep_biopsy", "totalcw", "sleep_24h")      
+traits2<-c("SEX.M", "AGE", "T2D", "INSFAST", "BMI", "GLUFAST", "HEIGHT", "WEIGHT", "WAIST", "WHR", "HIP", "ALAT", "CRP", "CHOL", "HDL", "LDL", "TG", "GL0", "GL30", "GL60", "GL120", "APOA1", "APOB", "CPEP", "CREAT", "GT", "URIC", "CPEP30", "S_INS30", "HBA1C", "GLU2H", "ENERGY", "PA_TOT", "PA_MOD", "PA_STREN", "INS0", "INS30", "INS60", "INS120", "RFM", "SBP", "DBP", "APOB.A1.RATIO", "INS_AUC_0_30", "GLU_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG", "SLEEP", "ALCOHOL", "SLEEP24H")   
+
+# https://hbctraining.github.io/scRNA-seq/lessons/pseudobulk_DESeq2_scrnaseq.html    
+#After identification of the cell type identities of the scRNA-seq clusters, we often would like to perform differential expression analysis between conditions within particular cell types. While functions exist within Seurat to perform this analysis, the p-values from these analyses are often inflated as each cell is treated as a sample. We know that single cells within a sample are not independent of each other, since they are isolated from the same animal/sample from the same environment. If we treat cells as samples, then we are not truly investigating variation across a population, but variation among an individual. Therefore, we could only make conclusions at the level of the individual, not the population. Usually, we want to infer which genes might be important for a condition at the population level (not the individual level), so we need our samples to be acquired from different organisms/samples, not different cells. To do this, the current best practice is using a pseudobulk approach, which involves the following steps:  
+
+#* Subsetting to the cells for the cell type(s) of interest to perform the DE analysis.  
+#* Extracting the raw counts after QC filtering to be used for the DE analysis    
+#* Aggregating the counts and metadata to the sample level.   
+#* Performing the DE analysis (Need at least two biological replicates per condition to perform the analysis, but more replicates are recommended).    
+
+#Differential gene expression with DESeq2  
+#DESeq2 first normalizes the count data to account for differences in library sizes and RNA composition between samples. Then, we will use the normalized counts to make some plots for QC at the gene and sample level. The final step is to use the appropriate functions from the DESeq2 package to perform the differential expression analysis. 
+
+#Also see https://bioconductor.org/packages/release/workflows/vignettes/rnaseqGene/inst/doc/rnaseqGene.html  
+```
+
+Use  previous version of phenotype and gene count data, 
+retain final samples only
+
+```{r prep_data_rna, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+celltype<-c("Adipocyte", "Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "T_cell", "Type_1", "Type_2a", "Type_2x")
+
+who.use.rna<-readRDS("data/df.rna.nuc.Rds")%>% pull(labelcode) #279
+
+pds0<-readRDS("data/pds.orig.withextrasamples.Rds")
+eds0<-readRDS("data/eds.orig.withextrasamples.Rds")
+pds.orig<-list()
+eds.orig<-list()
+for(i in 1:length(celltype)) {
+	who.use.cell<-intersect(pds0[[i]]$labelcode, who.use.rna)
+	pds.temp<-pds0[[i]] %>% dplyr::slice(match(who.use.cell, labelcode))
+	eds.temp <- eds0[[i]] %>% select(gene, all_of(who.use.cell))
+	pds.orig[[i]]<-pds.temp
+	eds.orig[[i]]<-eds.temp
+}
+saveRDS(pds.orig,"data/pds.orig.Rds")
+saveRDS(eds.orig,"data/eds.orig.Rds")
+
+```
+
+
+
+###  Trait associations are run in code/ subdirectoy   
+1. 'run_deseq_RNA_drop10nuc.R is the R code for each association, given a trait and a celltype.
+2. 'make_deseq_RNA_drop10nuc_jobs.sh' produces job file deseq.rna.drop10nuc.jobs, 10 celltypes, 65 traits  
+3. 'sbatch --array=1-650 Run_deseq_rna_drop10nuc.sh' submits jobs to cluster  
+
+
+2 of 650 JOBS MISSING DUE TO MODEL MATRIX NOT FULL RANK:
+Macrophage T2D
+Neuronal T2D
+
+### Adding ogtt status as covariate 
+1. 'run_deseq_RNA_drop10nuc_ogtt_covar.R is the R code for each association, given a trait and a celltype.
+2. 'make_deseq_RNA_drop10nuc_ogtt_covar_jobs.sh' produces job file deseq.rna.drop10nuc_ogtt_covar.jobs, 10 celltypes, 65 traits  
+3. 'sbatch --array=1-650 Run_deseq_rna_drop10nuc_ogtt_covar.sh' submits jobs to cluster  
+
+12 of 650 JOBS MISSING DUE TO MODEL MATRIX NOT FULL RANK:
+All 10 cell types T2D
+Neuronal INS60
+Neuronal Matsuda4
+
+

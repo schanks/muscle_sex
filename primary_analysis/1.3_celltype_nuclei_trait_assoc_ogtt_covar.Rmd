@@ -1,0 +1,143 @@
+---
+title: "Negative binomial regression using nuclei count data, per cell type, for RNA + ATAC, invnorm traits- with log(total nuclei) offset, adjusting for OGTT status."
+output:
+  workflowr::wflow_html:
+    toc: true
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, dev=c('png'), include=F}
+knitr::opts_chunk$set(dev = c('png'))
+knitr::opts_chunk$set(autodep = TRUE)
+
+```
+
+
+```{r include=F}
+.libPaths("/net/snowwhite/home/aujackso/R/x86_64-pc-linux-gnu-library/4.0");
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(broom)
+library(MASS)
+options(scipen=1, digits=5)
+options(nwarnings=10000)
+library(grid)
+library(gridExtra)
+library(RColorBrewer)
+library(corrr)
+library(gplots) #library with heatmap.2
+library(kableExtra)  
+
+invnorm = function(x, seed) {
+  set.seed(seed)
+  qnorm((rank(x, na.last="keep", ties.method="random") - 0.5) / sum(!is.na(x)))
+}
+
+```
+
+
+```{r functions, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+
+run_nb_invnorm_ogtt_covar<-function(ds0,trt,trt2,cell) {
+	print(paste0(trt," ",cell))
+	temp<- ds0 %>% dplyr::select(-labelcode) 
+	tot.nuc<-rowSums(temp, na.rm=T)
+	labelcode<-ds0$labelcode
+	temp.totnuc<-cbind.data.frame(labelcode, tot.nuc)
+	temp.phen<-merge(temp.totnuc, trait.ds, by="labelcode")
+	temp.phen<-dplyr::slice(temp.phen, match(ds0$labelcode, labelcode)) 
+	
+	if (trt == "SEX") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, age_biopsy, area_name, batch, trt, tot.nuc, ogtt_status_paper) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   fstr<-paste0("nuc ~ ogtt_status_paper + agescale + BATCH + area_name + x + offset(log(tot.nuc))") 
+	}   
+	if (trt == "age_biopsy") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, area_name, batch, trt, tot.nuc, ogtt_status_paper) %>%
+		mutate(BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("nuc ~ ogtt_status_paper + SEX + BATCH + area_name + x + offset(log(tot.nuc))") 
+	}   
+	if (trt == "T2D") {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, all_of(trt), tot.nuc, ogtt_status_paper) %>%
+		mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   fstr<-paste0("nuc ~ ogtt_status_paper + agescale + as.factor(SEX) + as.factor(BATCH) + as.factor(area_name) + x + offset(log(tot.nuc))") 
+	}   
+	if (!(trt %in% c("SEX", "age_biopsy", "T2D"))) {
+	   phen<-temp.phen %>% dplyr::select(labelcode, SEX, age_biopsy, area_name, batch, trt, tot.nuc, ogtt_status_paper) %>%
+		dplyr::filter(complete.cases(.)) %>% 
+		dplyr::mutate(agescale=scale(age_biopsy), BATCH=paste0("b.",batch)) %>% 
+		dplyr::rename(x=trt)
+	   phen$x=invnorm(phen$x,1)	
+	   fstr<-paste0("nuc ~ ogtt_status_paper + agescale + SEX + BATCH + area_name + x + offset(log(tot.nuc))") 
+	   phen$agescale=scale(phen$age_biopsy)	
+	}
+	# only use samples with cell type data
+	ds<-ds0 %>% dplyr::select(labelcode,paste0(cell)) %>% filter(complete.cases(.))
+	names(ds)<-c("labelcode", "nuc")
+	
+	# ensure count samples are same as complete pheno samples 
+	use<-intersect(ds$labelcode, phen$labelcode)
+	
+	ds<- dplyr::slice(ds, match(use, labelcode)) 
+	phen<-dplyr::slice(phen, match(use, labelcode))
+	df<- merge(ds, phen, by="labelcode")
+	
+	nb<-glm.nb(as.formula(fstr), data=df)
+	#pois<-glm(as.formula(fstr), family="poisson", data=df)
+	#ll<-pchisq(2*(logLik(nb) - logLik(pois)), df=1, lower.tail=FALSE)
+	#print(ll)
+	res<-tidy(nb) %>% filter(substr(term,1,1)=="x")
+	# res is for the last variable in the design
+	res$celltype=cell
+	res$trait=trt2
+	res$n=nrow(df)
+	return(res)
+}
+
+
+
+```
+
+
+
+
+
+```{r make_negbinom_output_invnorm, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE, eval=TRUE}
+
+out<-data.frame()
+
+df.both.nuc<-readRDS("data/df.both.nuc.Rds")
+trait.ds<-readRDS("data/trait.ds.281.Rds") 
+# note beware any element in traits starting with "x" since that's the name of the dummy phenotype in the function  
+traits<-c("SEX", "age_biopsy", "T2D", "S_Insu", "bmi",  "glu_fast_biopsy", "HEIGHT", "WEIGHT", "WAIST", "whr", "HIP", "S_ALAT", "S_hs_CRP", "fS_Kol", "fS_Kol_HDL", "fS_Kol_LDL_c", "fS_Trigly", "GL30", "GL60", "GL120", "S_LipoA1", "S_LipoB", "fS_C_pept", "fS_Krea", "S_GT", "S_Uraat", "fS_C_pept_30", "S_Insu_30", "B_GHb_A1C", "glu_2h_biopsy", "daily_energy_expenditure", "total_daily_physical_activity", "moderate_physical_activity", "strenuous_physical_activity",  "p_insu", "p_insu_30", "p_insu_60", "p_insu_120", "RFM", "sbp", "dbp", "ApoB_A1_ratio", "Ins_AUC_0to30", "Glu_AUC_0to30", "InsSec30", "InsGenIn", "DIo", "CpepGenIn", "HOMA", "matsuda_4pt", "matsuda_3pt", "LTPA_duration_all", "LTPA_duration_cond", "LTPA_duration_noncond", "LTPA_energy_all", "LTPA_energy_cond", "LTPA_energy_noncond", "LTPA_energy_light", "LTPA_energy_moderate", "LTPA_energy_modvig", "LTPA_energy_vigorous", "sleep_biopsy", "totalcw", "sleep_24h", "GL0")      
+traits2<-c("SEX.M", "AGE", "T2D", "INSFAST", "BMI", "GLUFAST", "HEIGHT", "WEIGHT", "WAIST", "WHR", "HIP", "ALAT", "CRP", "CHOL", "HDL", "LDL", "TG", "GL30", "GL60", "GL120", "APOA1", "APOB", "CPEP", "CREAT", "GT", "URIC", "CPEP30", "S_INS30", "HBA1C", "GLU2H", "ENERGY", "PA_TOT", "PA_MOD", "PA_STREN", "INS0", "INS30", "INS60", "INS120", "RFM", "SBP", "DBP", "APOB.A1.RATIO", "INS_AUC_0_30", "GLU_AUC_0_30", "INSSEC30", "INSGENIN", "DI", "CPEPGENIN", "HOMA", "MATSUDA4", "MATSUDA3", "LTPA.DUR.ALL", "LTPA.DUR.COND", "LTPA.DUR.NONCOND", "LTPA.EN.ALL", "LTPA.EN.COND", "LTPA.EN.NONCOND", "LTPA.EN.LIGHT", "LTPA.EN.MOD", "LTPA.EN.MODVIG", "LTPA.EN.VIG", "SLEEP", "ALCOHOL", "SLEEP24H", "GL0")   
+ 
+ 
+  
+celltypes<-c("Type_1", "Type_2a", "Type_2x", "Adipocyte", "Endothelial", "Macrophage", "Mesenchymal_Stem_Cell", "Neuromuscular_junction", "Neuronal", "Satellite_Cell", "Smooth_Muscle", "T_cell")
+
+
+for (j in 1:length(celltypes)) {
+   tempout<-data.frame()
+   for (i in 1:length(traits)) {
+	res.both<-run_nb_invnorm_ogtt_covar(df.both.nuc, traits[i], traits2[i], celltypes[j]) %>% 
+		mutate(modality="rna+atac")
+	if (i==1) {tempout=res.both} else {tempout=rbind.data.frame(tempout,res.both)}
+   }
+   #make B-H adjustment across traits, within cell type
+   tempout<- tempout %>% mutate(padj=p.adjust(p.value, method="BH"))
+   if (j==1) {out<-tempout} else {out<- rbind.data.frame(out, tempout)}
+}
+
+saveRDS(out, "output/nuclei_nb/nb_nuclei_invnorm_cell_fdrpercelltype_ogtt_covar.Rds")
+```
+
