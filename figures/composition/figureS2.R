@@ -50,10 +50,12 @@ ab=grid.arrange(a, b, widths=c(1,2))
 #Panel C - Mean proportions
 fmeans=as.data.frame(as.numeric(apply(dat[which(dat$SEX=="F"),2:13],2,mean)))
 colnames(fmeans)=c("Mean proportion")
+fmeans$SD=as.numeric(apply(dat[which(dat$SEX=="F"),2:13],2,sd))
 fmeans$Sex=rep("Female", nrow(fmeans))
 fmeans$`Cell type`=colnames(dat)[2:13]
 mmeans=as.data.frame(as.numeric(apply(dat[which(dat$SEX=="M"),2:13],2,mean)))
 colnames(mmeans)=c("Mean proportion")
+mmeans$SD=as.numeric(apply(dat[which(dat$SEX=="M"),2:13],2,sd))
 mmeans$Sex=rep("Male", nrow(mmeans))
 mmeans$`Cell type`=colnames(dat)[2:13]
 means=rbind(fmeans, mmeans)
@@ -63,11 +65,11 @@ means$`Mean proportion`[which(means$Sex=="Female")]=-means$`Mean proportion`[whi
 means$textlabel=as.character(round(abs(means$`Mean proportion`), digits=2))
 means$textlabel[which(means$textlabel=="0.1")]="0.10"
 means$textlabel[which(means$textlabel=="0.2")]="0.20"
-means$textpos=as.numeric(means$textlabel)+0.04
+means$textpos=as.numeric(means$textlabel)+means$SD+0.08
 means$textpos[which(means$Sex=="Female")]=-means$textpos[which(means$Sex=="Female")]
-breaks=c(-0.4,-0.2,0,0.2,0.4)
-labels=c("0.4","0.2","0.0","0.2","0.4")
-c=ggplot(means, aes(x=`Mean proportion`, y=`Cell type`, fill=`Cell type`))+geom_bar(stat="identity")+scale_x_continuous(breaks=breaks, labels=labels, limits=c(-0.42,0.42))+scale_y_discrete(limits=rev)+theme_bw()+scale_fill_manual(values=colors1)+geom_text(aes(label=textlabel, x=textpos))+geom_text(label="Females", aes(x=-0.35, y=0.9), check_overlap=TRUE, size=4.5,hjust=0)+geom_vline(xintercept=0, size=0.2)+geom_text(label="Males", aes(x=.25, y=0.9), check_overlap=TRUE,size=4.5, hjust=0)+theme(legend.position="none", axis.text=element_text(size=12), axis.title=element_text(size=14))
+breaks=c(-0.6,-0.4,-0.2,0,0.2,0.4,0.6)
+labels=c("0.6","0.4","0.2","0.0","0.2","0.4","0.6")
+c=ggplot(means, aes(x=`Mean proportion`, y=`Cell type`, fill=`Cell type`))+geom_bar(stat="identity")+geom_errorbar(aes(xmin=`Mean proportion`-SD, xmax=`Mean proportion`+SD),width=.3,linewidth=0.4)+scale_x_continuous(breaks=breaks, labels=labels, limits=c(-0.65,0.65))+scale_y_discrete(limits=rev)+theme_bw()+scale_fill_manual(values=colors1)+geom_text(aes(label=textlabel, x=textpos))+geom_text(label="Females", aes(x=-0.57, y=0.9), check_overlap=TRUE, size=4.5,hjust=0)+geom_vline(xintercept=0, size=0.2)+geom_text(label="Males", aes(x=.4, y=0.9), check_overlap=TRUE,size=4.5, hjust=0)+theme(legend.position="none", axis.text=element_text(size=12), axis.title=element_text(size=14))
 
 #Panel D - Negative binomial results
 dat=readRDS("/net/snowwhite/home/aujackso/sn_muscle_2023/output/nuclei_nb/nb_nuclei_invnorm_cell_SEX_fdr_across_celltypes_ATACnuc.Rds")

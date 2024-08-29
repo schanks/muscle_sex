@@ -16,7 +16,6 @@ nuc$`Cell type`=gsub("_"," ",nuc$`Cell type`)
 nuc$`Cell type`[which(nuc$`Cell type`=="Muscle Fiber Mixed")]="Mixed Muscle Fiber"
 nuc$`Cell type`=factor(nuc$`Cell type`, levels=c("Type 1", "Type 2a","Type 2x","Endothelial","Mesenchymal Stem Cell","Smooth Muscle","T cell","Neuronal","Neuromuscular junction","Satellite Cell","Adipocyte","Macrophage","Mixed Muscle Fiber"))
 a=ggplot(nuc, aes(x=UMAP_1, y=UMAP_2, color=`Cell type`))+theme_bw()+geom_point(size=0.5)+xlab("UMAP 1")+ylab("UMAP 2")+scale_color_manual(values=colorsmfm)+theme(axis.text=element_text(size=7),axis.title=element_text(size=7),legend.position="none")
-
 #Panel B
 dat=readRDS("/net/snowwhite/home/aujackso/sn_muscle_2023/data/df.both.nuc.Rds")
 dat[is.na(dat)]=0
@@ -47,10 +46,12 @@ ab=grid.arrange(a, b, widths=c(1,2))
 #Panel C - Mean proportions
 fmeans=as.data.frame(as.numeric(apply(dat[which(dat$SEX=="F"),3:14],2,mean)))
 colnames(fmeans)=c("Mean proportion")
+fmeans$SD=as.numeric(apply(dat[which(dat$SEX=="F"),3:14],2,sd))
 fmeans$Sex=rep("Female", nrow(fmeans))
 fmeans$`Cell type`=colnames(dat)[3:14]
 mmeans=as.data.frame(as.numeric(apply(dat[which(dat$SEX=="M"),3:14],2,mean)))
 colnames(mmeans)=c("Mean proportion")
+mmeans$SD=as.numeric(apply(dat[which(dat$SEX=="M"),3:14],2,sd))
 mmeans$Sex=rep("Male", nrow(mmeans))
 mmeans$`Cell type`=colnames(dat)[3:14]
 means=rbind(fmeans, mmeans)
@@ -60,13 +61,12 @@ means$`Mean proportion`[which(means$Sex=="Female")]=-means$`Mean proportion`[whi
 means$textlabel=as.character(round(abs(means$`Mean proportion`), digits=2))
 means$textlabel[which(means$textlabel=="0.1")]="0.10"
 means$textlabel[which(means$textlabel=="0.2")]="0.20"
-means$textpos=as.numeric(means$textlabel)+0.04
+means$textpos=as.numeric(means$textlabel)+means$SD+0.08
 means$textpos[which(means$Sex=="Female")]=-means$textpos[which(means$Sex=="Female")]
-breaks=c(-0.4,-0.2,0,0.2,0.4)
-labels=c("0.4","0.2","0.0","0.2","0.4")
-c=ggplot(means, aes(x=`Mean proportion`, y=`Cell type`, fill=`Cell type`))+geom_bar(stat="identity")+scale_x_continuous(breaks=breaks, labels=labels, limits=c(-0.42,0.42))+scale_y_discrete(limits=rev)+theme_bw()+scale_fill_manual(values=colors1)+geom_text(aes(label=textlabel, x=textpos), size=2.5)+geom_text(label="Females", aes(x=-0.35, y=0.9), check_overlap=TRUE, size=3,hjust=0)+geom_vline(xintercept=0, size=0.2)+geom_text(label="Males", aes(x=.25, y=0.9), check_overlap=TRUE,size=3, hjust=0)+theme(legend.position="none", axis.text=element_text(size=7), axis.title=element_text(size=7))
-
-#Panel D - Negative binomial results
+breaks=c(-0.6,-0.4,-0.2,0,0.2,0.4,0.6)
+labels=c("0.6","0.4","0.2","0.0","0.2","0.4","0.6")
+c=ggplot(means, aes(x=`Mean proportion`, y=`Cell type`, fill=`Cell type`))+geom_bar(stat="identity")+geom_errorbar(aes(xmin=`Mean proportion`-SD, xmax=`Mean proportion`+SD),width=.3,linewidth=0.2)+scale_x_continuous(breaks=breaks, labels=labels, limits=c(-0.6,0.6))+scale_y_discrete(limits=rev)+theme_bw()+scale_fill_manual(values=colors1)+geom_text(aes(label=textlabel, x=textpos), size=2.5)+geom_text(label="Females", aes(x=-0.57, y=0.9), check_overlap=TRUE, size=3,hjust=0)+geom_vline(xintercept=0, size=0.2)+geom_text(label="Males", aes(x=.4, y=0.9), check_overlap=TRUE,size=3, hjust=0)+theme(legend.position="none", axis.text=element_text(size=7), axis.title=element_text(size=7))
+																																																																																		#Panel D - Negative binomial results
 dat=readRDS("/net/snowwhite/home/aujackso/sn_muscle_2023/output/nuclei_nb/nb_nuclei_invnorm_cell_SEX_fdr_across_celltypes.Rds")
 dat$OR=exp(dat$estimate)
 dat$UB=exp(dat$estimate+1.96*dat$std.error)
