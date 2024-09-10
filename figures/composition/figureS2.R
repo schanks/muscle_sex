@@ -12,7 +12,8 @@ colorsmfm=c("#3969AC","#80BA5A","#008695","#F2B701","#E73F74","#E68310","#7F3C8D
 nuc=fread("/net/snowwhite/home/aujackso/snRNAsnATAC_paper1/data/hg38/fusion_plus_multiome_cluster_info/cluster_info_qc.tsv")
 nuc=nuc[which(nuc$cohort=="FUSION"),]
 nuc=nuc[which(nuc$modality=="atac"),]
-exclude=omittedsampleids
+exclude=c("12004--530","22011--551","32071--692")
+#exclude=omittedsampleids
 nuc=nuc[which(!is.element(nuc$sample, exclude)),]
 colnames(nuc)[17]="Cell type"
 nuc$`Cell type`=gsub("_"," ",nuc$`Cell type`)
@@ -42,7 +43,7 @@ mfm$Proportion=rep(0, nrow(mfm))
 datmelt=rbind(datmelt, mfm)
 datmelt$`Cell type`=as.character(datmelt$`Cell type`)
 datmelt$`Cell type`[which(datmelt$`Cell type`=="Mesenchymal Stem Cell")]="Fibro-adipogenic progenitor"
-datmelt$`Cell type`=factor(datmelt$`Cell type`, levels=c("Type 1", "Type 2a","Type 2x","Endothelial","Mesenchymal Stem Cell","Smooth Muscle","T cell","Neuronal","Neuromuscular junction","Satellite Cell","Adipocyte","Macrophage","Mixed Muscle Fiber"))
+datmelt$`Cell type`=factor(datmelt$`Cell type`, levels=c("Type 1", "Type 2a","Type 2x","Endothelial","Fibro-adipogenic progenitor","Smooth Muscle","T cell","Neuronal","Neuromuscular junction","Satellite Cell","Adipocyte","Macrophage","Mixed Muscle Fiber"))
 b=ggplot(datmelt, aes(x=labelcode, fill=`Cell type`, y=Proportion))+geom_bar(position="stack",stat="identity", width=1)+theme_bw()+xlab(" ")+theme(axis.text.x=element_text(color="white"),axis.ticks.x=element_blank(), axis.text.y=element_text(size=12), axis.title=element_text(size=14))+scale_y_continuous(expand=c(0,0))+scale_fill_manual(values=colorsmfm)+geom_text(label="Female:\nn=118", size=4.5,aes(x=5,y=0.94), check_overlap=TRUE, hjust=0, color="white")+geom_text(label="Male:\nn=163", size=4.5,aes(x=125,y=0.94), color="white",check_overlap=TRUE, hjust=0)
 
 ab=grid.arrange(a, b, widths=c(1,2))
