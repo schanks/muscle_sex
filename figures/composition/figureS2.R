@@ -12,8 +12,7 @@ colorsmfm=c("#3969AC","#80BA5A","#008695","#F2B701","#E73F74","#E68310","#7F3C8D
 nuc=fread("/net/snowwhite/home/aujackso/snRNAsnATAC_paper1/data/hg38/fusion_plus_multiome_cluster_info/cluster_info_qc.tsv")
 nuc=nuc[which(nuc$cohort=="FUSION"),]
 nuc=nuc[which(nuc$modality=="atac"),]
-exclude=c("12004--530","22011--551","32071--692")
-#exclude=omittedsampleids
+exclude=omittedsampleids
 nuc=nuc[which(!is.element(nuc$sample, exclude)),]
 colnames(nuc)[17]="Cell type"
 nuc$`Cell type`=gsub("_"," ",nuc$`Cell type`)
