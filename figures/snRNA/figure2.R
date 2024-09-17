@@ -14,7 +14,7 @@ get_legend<-function(myggplot){
 }
 
 #Panel A
-results=fread("all.expr.results")
+results=fread("/net/snowwhite/home/schanks/muscle/snrna/all.expr.results")
 results$CHR=rep("Autosomal", nrow(results))
 results$CHR[which(results$chrom=="chrX")]="ChrX"
 results$CHR[which(results$chrom=="chrY")]="ChrY"
@@ -32,7 +32,7 @@ cell_tot$cell=gsub("_"," ", cell_tot$cell)
 cell_tot$cell[which(cell_tot$cell=="Mesenchymal Stem Cell")]="Fibro-adipogenic progenitor"
 cell$cell=gsub("_"," ",cell$cell)
 cell$cell[which(cell$cell=="Mesenchymal Stem Cell")]="Fibro-adipogenic progenitor"
-cell$cell=factor(cell$cell, levels=c("Type 1","Type 2a","Type 2x","Endothelial","Fibro-adipogenic progenitor","Smooth Muscle","Neuronal","Neuromuscular junction","Satellite Cell","Macrophage"))
+cell$cell=factor(cell$cell, levels=c("Type 1","Type 2a","Type 2x","Fibro-adipogenic progenitor","Satellite Cell","Neuromuscular junction","Endothelial","Smooth Muscle","Macrophage","Neuronal"))
 cell$legend=rep("F higher: Autosomal", nrow(cell))
 cell$legend[which(cell$CHR=="ChrX" & cell$Direction==0)]="F higher: ChrX"
 cell$legend[which(cell$CHR=="Autosomal" & cell$Direction==1)]="M higher: Autosomal"
@@ -40,7 +40,7 @@ cell$legend[which(cell$CHR=="ChrX" & cell$Direction==1)]="M higher: ChrX"
 cell$legend[which(cell$CHR=="ChrY" & cell$Direction==1)]="M higher: ChrY"
 cell$legend=as.factor(cell$legend)
 
-down=fread("all.down.results")
+down=fread("/net/snowwhite/home/schanks/muscle/snrna/all.down.fix.results")
 down=down[which(down$baseMean!=0),]
 down$cell[which(down$cell=="Mesenchymal_Stem_Cell")]="Fibro-adipogenic progenitor"
 downcell=aggregate(down$fdr, by=list(down$cell), FUN=length)
@@ -64,7 +64,7 @@ a=ggplot(cell, aes(x=cell, y=prop))+geom_bar(stat="identity",aes(fill=legend))+g
 #Panel C
 dat=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/final_drop10nuc/results/Type_1.SEX.M.results.tab")
 dat$sig=as.numeric(p.adjust(dat$pvalue, method="fdr")<0.05)
-means=fread("cell_means_bygene.tab")
+means=fread("/net/snowwhite/home/schanks/muscle/snrna/cell_means_bygene.tab")
 dat=merge(dat, means, by=c("gene", "cell"))
 dat$type=rep("Other", nrow(dat))
 dat$type[which(is.element(dat$gene_type, c("3prime_overlapping_ncRNA","antisense","bidirectional_promoter_lncRNA","lincRNA","macro_lncRNA","non_coding","processed_transcript","sense_intronic","sense_overlapping")))]="lncRNA"
@@ -88,7 +88,7 @@ t2x=t2x[which(t2x$`#Genes`>=10),]
 t1$cell=rep("Type 1", nrow(t1))
 t2a$cell=rep("Type 2a", nrow(t2a))
 t2x$cell=rep("Type 2x", nrow(t2x))
-revigo=fread("goterm/revigo.txt")
+revigo=fread("/net/snowwhite/home/schanks/muscle/snrna/goterm/revigo.txt")
 comp=rbind(t1[,c("Name","Direction","P-Value","FDR","cell","OddsRatio")], t2a[,c("Name","Direction","P-Value","FDR","cell","OddsRatio")], t2x[,c("Name","Direction","P-Value","FDR","cell","OddsRatio")])
 comp$signedp=-log10(comp$`P-Value`)
 comp$signedp[which(comp$Direction=="down")]=-comp$signedp[which(comp$Direction=="down")]
