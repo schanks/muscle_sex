@@ -13,7 +13,8 @@ gtex$gtex=-log10(gtex$pvalue)
 gtex$gtex[which(gtex$log2FoldChange<0)]=-gtex$gtex[which(gtex$log2FoldChange<0)]
 bulk$Chromosome=rep("Autosomal",nrow(bulk))
 bulk$Chromosome[which(bulk$chr=="X")]="X"
-bulk$Chromosome[which(bulk$chr=="Y")]="Y"
+bulk=as.data.frame(bulk)
+bulk=bulk[which(bulk$chr!="Y"),]
 
 all=merge(bulk, gtex[,c("gene","gfdr","gtex")], by="gene")
 all$Significance=rep("Neither", nrow(all))

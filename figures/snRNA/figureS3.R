@@ -6,8 +6,9 @@ library(gridExtra)
 celltypes=c("Endothelial","Macrophage","Mesenchymal_Stem_Cell","Neuromuscular_junction","Neuronal","Satellite_Cell","Smooth_Muscle","Type_1","Type_2a","Type_2x")
 cellorder=gsub("_"," ", celltypes)
 
-for (c1 in celltypes[8]){
+for (c1 in celltypes[10]){
 res1=fread(paste("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/final_drop10nuc/results/",c1,".SEX.M.results.tab", sep=""))
+res1=res1[which(res1$chrom!="chrY"),]
 res1$fdr=p.adjust(res1$pvalue, method="fdr")
 res1$r1sig=as.numeric(res1$fdr<0.05)
 res1$log10p=-log10(res1$pvalue)
@@ -17,7 +18,6 @@ res1=res1[,c("gene","gene_name","chrom","log10p","r1sig")]
 colnames(res1)=c("gene","gene_name","chrom","FC_1","r1sig")
 res1$Chromosome=rep("Autosomal", nrow(res1))
 res1$Chromosome[which(res1$chrom=="chrX")]="X"
-res1$Chromosome[which(res1$chrom=="chrY")]="Y"
 
 res2=NULL
 

@@ -4,9 +4,9 @@ library(gridExtra)
 
 #Panel A
 noadj=fread("all.expr.results")
+noadj=noadj[which(noadj$chrom!="chrY"),]
 noadj$Chromosome=rep("Autosomal", nrow(noadj))
 noadj$Chromosome[which(noadj$chrom=="chrX")]="X"
-noadj$Chromosome[which(noadj$chrom=="chrY")]="Y"
 ogtt=fread("all.expr.ogtt.results")
 
 celltypes=c("Type_1","Type_2a","Type_2x","Endothelial","Mesenchymal_Stem_Cell","Macrophage","Neuromuscular_junction","Neuronal","Satellite_Cell","Smooth_Muscle")
