@@ -3,7 +3,7 @@ library(ggplot2)
 
 
 bulk=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/bulk_adjprop/hg38.filter22323.bulk.SEX.M.results.tab")
-gtex=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/gtex/hg38.filter22211.790gtex.SEX.M.results.tab")
+gtex=fread("/net/snowwhite/home/schanks/muscle/bulk/gtex/gtex_fiber_results.tab")
 gtex$gene=unlist(strsplit(gtex$gene,"[.]"))[seq(1, nrow(gtex)*2, by=2)]
 bulk$ffdr=p.adjust(bulk$pvalue, method="fdr")
 gtex$gfdr=p.adjust(gtex$pvalue, method="fdr")
