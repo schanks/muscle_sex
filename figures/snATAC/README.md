@@ -22,7 +22,9 @@ enrich_gene_peak.R: Calculate enrichment of differential expression by sex by nu
 ## Figures
 figure4.R: Figure 4. Sex differences in cell-type specific chromatin accessibility in human skeletal muscle
 
-figureS13.R: Supplementary Figure 13. Comparison of differential accessibility by sex across muscle cell types
+figureS15.R: Supplementary Figure 15. Comparison of differential accessibility by sex across muscle cell types
 
-figureS14.R: Supplementary Figure 14. Association of chromatin state with differential accessibility by sex 
+figureS16.R: Supplementary Figure 16. Association of chromatin state with differential accessibility by sex 
+
+figureS17.R: Supplementary Figure 17. Effect size of sex-biased expression by the presence of sex-biased promoter peaks
 
