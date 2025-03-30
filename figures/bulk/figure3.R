@@ -31,6 +31,7 @@ both$Significance=factor(both$Significance, levels=c("Both","Bulk only","Pseudob
 both$Chromosome=rep("Autosomal", nrow(both))
 both$Chromosome[which(both$chr=="X")]="X"
 both$Chromosome[which(both$chr=="Y")]="Y"
+both=both[which(both$Chromosome!="Y"),]
 
 sigcolors=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd")
 a=ggplot(both, aes(x=bulksp, y=pbulksp, color=Significance, shape=Chromosome))+geom_point(size=0.8)+geom_vline(xintercept=0, linetype="dotted")+geom_hline(yintercept=0, linetype="dotted")+scale_x_continuous(limits=c(-100,100))+scale_y_continuous(limits=c(-100,100))+theme_bw()+scale_color_manual(values=sigcolors)+scale_shape_manual(values=c(16,2,5))+xlab("Bulk signed -log10 p-value")+ylab("Pseudobulk signed -log10 p-value")+theme(axis.title=element_text(size=7), axis.text=element_text(size=7), legend.title=element_text(size=7), legend.text=element_text(size=7), legend.position="right", plot.margin=unit(c(2,0.5,0.5,0.5), "lines"))+guides(color=guide_legend(nrow=4, keyheight=0.1, override.aes=list(size=1), title.position="top"), shape=guide_legend(keyheight=0.1,title.position="top",nrow=3, override.aes=list(size=1), order=2))
