@@ -1,75 +1,51 @@
 library(data.table)
 library(ggplot2)
+library(grid)
+library(gridExtra)
 
+#Panel D - boxplot of a gene significant only in single nucleus data?
+bulkcpm=fread("../snrna/cpms/bulk_cpm.tab")
+pbulkcpm=fread("../snrna/cpms/pbulk_cpm.tab")
+t2acpm=fread("../snrna/cpms/t2a_cpm.tab")
+t2xcpm=fread("../snrna/cpms/t2x_cpm.tab")
+bulkcpm$`Cell type`=rep("Bulk", nrow(bulkcpm))
+pbulkcpm$`Cell type`=rep("Pseudobulk", nrow(pbulkcpm))
+t2acpm$`Cell type`=rep("Type 2a", nrow(t2acpm))
+t2xcpm$`Cell type`=rep("Type 2x", nrow(t2xcpm))
+pheno=fread("/net/snowwhite/home/aujackso/snRNAsnATAC_paper1/data/tissue.csv")
 
-dat=fread("genetype.tab")
-dat$cell=gsub("_"," ",dat$cell)
-dat$UB[which(dat$UB=="Inf")]=NA
-dat$LB[which(dat$LB==0)]=NA
-dat$genetype[which(dat$genetype=="typelncRNA")]="lncRNA"
-dat$genetype[which(dat$genetype=="typeOther")]="Other"
-dat$genetype[which(dat$genetype=="typePseudogene")]="Pseudogene"
-dat$cell[which(dat$cell=="Mesenchymal Stem Cell")]="FAP"
-dat$cell[which(dat$cell=="Neuromuscular junction")]="NMJ"
-dat$cell[which(dat$cell=="Smooth Muscle")]="Smooth\nMuscle"
-dat$genetype=factor(dat$genetype, levels=c("lncRNA","Pseudogene","Other"))
-dat$Genes=rep("All genes", nrow(dat))
+#Panel E - boxplot of a gene discordant from single nucleus to bulk
+msccpm=fread("../snrna/cpms/msc_cpm.tab")
+sccpm=fread("../snrna/cpms/sc_cpm.tab")
+msccpm$`Cell type`=rep("Fibro-adipogenic\nprogenitor", nrow(msccpm))
+sccpm$`Cell type`=rep("Satellite", nrow(sccpm))
+msccol=grep("ENSG00000145012", colnames(msccpm))
+sccol=grep("ENSG00000145012", colnames(sccpm))
+t2acol=grep("ENSG00000145012", colnames(t2acpm))
+t2xcol=grep("ENSG00000145012", colnames(t2xcpm))
+pcol=grep("ENSG00000145012", colnames(pbulkcpm))
+fiber=rbind(as.data.frame(msccpm)[,c(38001,msccol,38002)], as.data.frame(sccpm)[,c(32500,sccol,32501)], as.data.frame(pbulkcpm)[,c(58963,pcol,58964)], as.data.frame(t2acpm)[,c(41438,t2acol,41439)], as.data.frame(t2xcpm)[,c(40528,t2xcol,40529)])
+colnames(fiber)[2]="ENSG00000145012"
+cpm=rbind(fiber, bulkcpm[,c("labelcode","ENSG00000145012","Cell type")])
+cpm=merge(cpm, pheno[,c("labelcode","SEX")], by="labelcode")
 
-aut=fread("genetype_aut.tab")
-aut$cell=gsub("_"," ",aut$cell)
-aut$UB[which(aut$UB=="Inf")]=NA
-aut$LB[which(aut$LB==0)]=NA
-aut$genetype[which(aut$genetype=="typelncRNA")]="lncRNA"
-aut$genetype[which(aut$genetype=="typeOther")]="Other"
-aut$genetype[which(aut$genetype=="typePseudogene")]="Pseudogene"
-aut$cell[which(aut$cell=="Mesenchymal Stem Cell")]="FAP"
-aut$cell[which(aut$cell=="Neuromuscular junction")]="NMJ"
-aut$cell[which(aut$cell=="Smooth Muscle")]="Smooth\nMuscle"
-aut$genetype=factor(aut$genetype, levels=c("lncRNA","Pseudogene","Other"))
-aut$Genes=rep("Autosomal genes", nrow(aut))
+cpm$pval=rep(1, nrow(cpm))
+cpm$pval[which(cpm$`Cell type`=="Type 2a")]="p=5x10-4"
+cpm$pval[which(cpm$`Cell type`=="Type 2x")]="p=2x10-7"
+cpm$pval[which(cpm$`Cell type`=="Fibro-adipogenic\nprogenitor")]="p=1x10-5"
+cpm$pval[which(cpm$`Cell type`=="Satellite")]="p=3x10-6"
+cpm$pval[which(cpm$`Cell type`=="Pseudobulk")]="0.15"
+cpm$pval[which(cpm$`Cell type`=="Bulk")]="p=4x10-7"
+cpm$facet=paste(cpm$`Cell type`, cpm$pval, sep="\n")
 
-dat=rbind(aut, dat)
-dat$OR[which(dat$OR==0)]=NA
-dat$Adjustment=rep("UMI adjusted", nrow(dat))
+cpm$facet=factor(cpm$facet, levels=c("Type 2a\np=5x10-4", "Type 2x\np=2x10-7","Fibro-adipogenic\nprogenitor\np=1x10-5", "Satellite\np=3x10-6","Pseudobulk\n0.15","Bulk\np=4x10-7"))
 
-d=fread("genetype_nocount.tab")
-d$cell=gsub("_"," ",d$cell)
-d$UB[which(d$UB=="Inf")]=NA
-d$LB[which(d$LB==0)]=NA
-d$genetype[which(d$genetype=="typelncRNA")]="lncRNA"
-d$genetype[which(d$genetype=="typeOther")]="Other"
-d$genetype[which(d$genetype=="typePseudogene")]="Pseudogene"
-d$cell[which(d$cell=="Mesenchymal Stem Cell")]="FAP"
-d$cell[which(d$cell=="Neuromuscular junction")]="NMJ"
-d$cell[which(d$cell=="Smooth Muscle")]="Smooth\nMuscle"
-d$genetype=factor(d$genetype, levels=c("lncRNA","Pseudogene","Other"))
-d$Genes=rep("All genes", nrow(d))
-
-a=fread("genetype_nocount_aut.tab")
-a$cell=gsub("_"," ",a$cell)
-a$UB[which(a$UB=="Inf")]=NA
-a$LB[which(a$LB==0)]=NA
-a$genetype[which(a$genetype=="typelncRNA")]="lncRNA"
-a$genetype[which(a$genetype=="typeOther")]="Other"
-a$genetype[which(a$genetype=="typePseudogene")]="Pseudogene"
-a$cell[which(a$cell=="Mesenchymal Stem Cell")]="FAP"
-a$cell[which(a$cell=="Neuromuscular junction")]="NMJ"
-a$cell[which(a$cell=="Smooth Muscle")]="Smooth\nMuscle"
-a$genetype=factor(a$genetype, levels=c("lncRNA","Pseudogene","Other"))
-a$Genes=rep("Autosomal genes", nrow(a))
-
-nocount=rbind(a, d)
-nocount$OR[which(nocount$OR==0)]=NA
-nocount$Adjustment=rep("No adjustment", nrow(nocount))
-
-dat=rbind(dat, nocount)
-dat$xval=rep(1, nrow(dat))
-dat$xval[which(dat$genetype=="lncRNA")]=3
-dat$xval[which(dat$genetype=="Pseudogene")]=2
-dat$xval[which(dat$Adjustment=="No adjustment")]=dat$xval[which(dat$Adjustment=="No adjustment")]+0.3
-
-tiff("~/plot.tiff", units="mm",height=100, width=120, res=300)
-ggplot(dat, aes(y=xval))+theme_bw()+geom_vline(xintercept=1, linetype="longdash")+geom_segment(linewidth=0.8,aes(linetype=Adjustment, color=genetype,yend=xval,x=LB, xend=UB))+geom_point(size=1,aes(x=OR, color=genetype, shape=Adjustment), fill="white")+scale_x_log10(limits=c(0.03,160), position="top")+scale_shape_manual(values=c(19,21))+facet_grid(cell~Genes,switch="both")+theme(axis.title=element_text(size=7), axis.text.x=element_text(size=7),strip.text.y.left=element_text(size=7, angle=0),strip.text.x=element_text(size=7),legend.title=element_text(size=7), legend.text=element_text(size=7),panel.spacing=unit(0,"lines"), strip.background=element_rect(fill="white",color=NA), axis.text.y=element_blank(), axis.ticks.y=element_blank(), axis.title.y=element_blank(), panel.border=element_rect(size=0.2), panel.spacing.y=unit(0,"lines"), panel.spacing.x=unit(1,"lines"))+xlab("Odds ratio of sex-biased expression compared to protein-coding genes")+guides(color=guide_legend(title="Gene type"))+scale_color_manual(values=c("#4daf4a","#ff7f00","#f781bf"))+scale_linetype_manual(values=c("solid","solid"))
+tiff("~/plot.tiff", height=140, width=180, units="mm", res=300)
+ggplot(cpm, aes(color=SEX,x=SEX, y=ENSG00000145012))+theme_bw()+geom_boxplot(fill=NA, outlier.shape=NA)+geom_jitter(size=0.05)+facet_wrap(.~facet, scales="free", nrow=1)+scale_color_manual(values=c("#e41a1c","#377eb8"))+theme(strip.background=element_rect(color=NA, fill=NA), axis.text.y=element_text(size=6, angle=45), axis.text.x=element_text(size=6),panel.spacing.x=unit(0,"in"),strip.text=element_text(size=7), legend.position="none", axis.title=element_blank(), plot.title=element_text(face="italic"), plot.margin=unit(c(0.07,0.07,0.07,0), "in"))
 dev.off()
+
+
+
+
 
 

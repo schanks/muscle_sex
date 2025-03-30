@@ -2,122 +2,77 @@ library(data.table)
 library(ggplot2)
 library(gridExtra)
 
-#Panel A
-noadj=fread("all.expr.results")
-noadj=noadj[which(noadj$chrom!="chrY"),]
-noadj$Chromosome=rep("Autosomal", nrow(noadj))
-noadj$Chromosome[which(noadj$chrom=="chrX")]="X"
-ogtt=fread("all.expr.ogtt.results")
 
-celltypes=c("Type_1","Type_2a","Type_2x","Endothelial","Mesenchymal_Stem_Cell","Macrophage","Neuromuscular_junction","Neuronal","Satellite_Cell","Smooth_Muscle")
+celltypes=c("Endothelial","Macrophage","Mesenchymal_Stem_Cell","Neuromuscular_junction","Neuronal","Satellite_Cell","Smooth_Muscle","Type_1","Type_2a","Type_2x")
+cellorder=gsub("_"," ", celltypes)
 
+for (c1 in celltypes[10]){
+res1=fread(paste("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/final_drop10nuc/results/",c1,".SEX.M.results.tab", sep=""))
+res1=res1[which(res1$chrom!="chrY"),]
+res1$fdr=p.adjust(res1$pvalue, method="fdr")
+res1$r1sig=as.numeric(res1$fdr<0.05)
+res1$log10p=-log10(res1$pvalue)
+res1$log10p[which(res1$log2FoldChange<0)]=-res1$log10p[which(res1$log2FoldChange<0)]
+
+res1=res1[,c("gene","gene_name","chrom","log10p","r1sig")]
+colnames(res1)=c("gene","gene_name","chrom","FC_1","r1sig")
+res1$Chromosome=rep("Autosomal", nrow(res1))
+res1$Chromosome[which(res1$chrom=="chrX")]="X"
+
+res2=NULL
+
+for (c2 in celltypes){
+	if (c2!=c1){
+		res_c2=fread(paste("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/final_drop10nuc/results/",c2,".SEX.M.results.tab", sep=""))
+		res_c2$fdr=p.adjust(res_c2$pvalue, method="fdr")
+		res_c2$r2sig=as.numeric(res_c2$fdr<0.05)
+		res_c2$log10p=-log10(res_c2$pvalue)
+		res_c2$log10p[which(res_c2$log2FoldChange<0)]=-res_c2$log10p[which(res_c2$log2FoldChange<0)]
+		res_c2=res_c2[,c("gene","log10p","cell","r2sig")]
+		colnames(res_c2)=c("gene","FC_2","cell","r2sig")
+		both=merge(res1[,c("gene","FC_1","r1sig","Chromosome")], res_c2[,c("gene","FC_2","r2sig")], by="gene")
+		both=both[which(both$r1sig==1 & both$r2sig==1),]
+		concordance=(sum(both$FC_1>0 & both$FC_2>0)+sum(both$FC_1<0 & both$FC_2<0))/nrow(both)
+		res_c2$Concordance=rep(round(concordance, digits=2),nrow(res_c2))
+		aut=both[which(both$Chromosome!="X" & both$Chromosome!="Y"),]
+		autc=(sum(aut$FC_1>0 & aut$FC_2>0)+sum(aut$FC_1<0 & aut$FC_2<0))/nrow(aut)
+		res_c2$AutConcordance=rep(round(autc, digits=2), nrow(res_c2))
+		res2=rbind(res2, res_c2)
+	}
+}
+res2$cell=gsub("_"," ", res2$cell)
+res2$cell=factor(res2$cell, levels=cellorder)
+res=merge(res1, res2, by="gene")		
+res$Significance=rep("Neither", nrow(res))
+res$Significance[which(res$r1sig+res$r2sig==2)]="Both"
+res$Significance[which(res$r1sig==1 & res$r2sig==0)]=paste(gsub("_"," ",c1),"only",sep=" ")
+res$Significance[which(res$r1sig==0 & res$r2sig==1)]="Other cell type only"
+res$Significance=factor(res$Significance, levels=c("Both",paste(gsub("_"," ",c1),"only",sep=" "),"Other cell type only","Neither"))
+
+res$Concordance=as.character(res$Concordance)
+res$Concordance[which(res$Concordance==1)]="1.00"
+res$Concordance[which(res$Concordance==0.90)]="0.90"
+res$Concordance[which(res$Concordance==NaN)]=" "
+res$AutConcordance=as.character(res$AutConcordance)
+res$AutConcordance[which(res$AutConcordance==1)]="1.00"
+res$AutConcordance[which(res$AutConcordance==0.8)]="0.80"
+res$AutConcordance[which(res$AutConcordance==0.9)]="0.90"
+res$AutConcordance[which(res$AutConcordance==NaN)]=" "
+res$Concordance=paste("All:\n", res$Concordance, sep="")
+res$AutConcordance=paste("Autosomal:\n", res$AutConcordance, sep="")
+res$Concordance[which(res$Concordance=="All:\n ")]=" "
+res$AutConcordance[which(res$AutConcordance=="Autosomal:\n ")]=" "
+
+cellname=gsub("_"," ",c1)
 breaks=c(-100,-50,0,50,100)
 labels=c("-100","-50","0","50","100")
-sigcolors=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd")
 
-for (c in celltypes){
-	no=noadj[which(noadj$cell==c),c("gene","cell","Chromosome","log2FoldChange","pvalue","fdr")]
-	og=ogtt[which(ogtt$cell==c),c("gene","log2FoldChange","pvalue","fdr")]
-	both=merge(no, og, by="gene")
-	colnames(both)=c("gene","cell","Chromosome","l2fc_no","p_no","fdr_no","l2fc_ogtt","p_ogtt","fdr_ogtt")
-	both$log10p_no=-log10(both$p_no)
-	both$log10p_no[which(both$l2fc_no<0)]=-both$log10p_no[which(both$l2fc_no<0)]
-	both$log10p_ogtt=-log10(both$p_ogtt)
-	both$log10p_ogtt[which(both$l2fc_ogtt<0)]=-both$log10p_ogtt[which(both$l2fc_ogtt<0)]
-	both$Significance=rep("Neither", nrow(both))
-	both$Significance[which(both$fdr_no<0.05 & both$fdr_ogtt<0.05)]="Both"
-	both$Significance[which(both$fdr_no<0.05 & both$fdr_ogtt>0.05)]="No adjustment only"
-	both$Significance[which(both$fdr_no>0.05 & both$fdr_ogtt<0.05)]="OGTT adjustment only"
-	both$Significance=factor(both$Significance, levels=c("Both","No adjustment only","OGTT adjustment only","Neither"))
-	bothsig=both[which(both$Significance=="Both")]
-	concordance=(sum(bothsig$l2fc_no>0 & bothsig$l2fc_ogtt>0)+sum(bothsig$l2fc_no<0 & bothsig$l2fc_ogtt<0))/nrow(bothsig)
-	concordance=round(concordance, digits=2)
-	aut=bothsig[which(bothsig$Chromosome=="Autosomal"),]
-	autc=(sum(aut$l2fc_no>0 & aut$l2fc_ogtt>0)+sum(aut$l2fc_no<0 & aut$l2fc_ogtt<0))/nrow(aut)
-	autc=round(autc, digits=2)
-	if (c=="Type_1"){ res=both}
-	else {res=rbind(res, both)}
-}
+res$cell=as.character(res$cell)
+res$cell[which(res$cell=="Mesenchymal Stem Cell")]="Fibro-adipogenic progenitor"
 
-res$cell[which(res$cell=="Mesenchymal_Stem_Cell")]="Fibro-adipogenic progenitor"
-res$cell=gsub("_"," ",res$cell)
 
-a=ggplot(res, aes(x=log10p_no, y=log10p_ogtt))+facet_wrap(cell~., ncol=5)+ylab("Signed -log10 p-value: OGTT adjustment")+geom_point(aes(color=Significance, size=Chromosome))+theme_bw()+xlab("Signed -log10 p-value: No OGTT adjustment")+scale_y_continuous(breaks=breaks, labels=labels, limits=c(-1e+02, 1e+02))+scale_x_continuous(breaks=breaks, labels=labels, limits=c(-1e+02, 1e+02))+geom_hline(yintercept=0, linetype="dotted")+geom_vline(xintercept=0, linetype="dotted")+geom_abline(intercept=0, slope=1, linetype="dotted")+scale_shape_manual(values=c(16,17,18))+scale_size_manual(values=c(0.8,1.2,1.5))+scale_color_manual(values=sigcolors)+theme(legend.position="none", strip.background=element_rect(fill=NA, color=NA))
-
-t1_noadj=fread("~/t1_out_invnorm.txt")
-t1_ogtt=fread("~/t1_ogtt_out.txt")
-t2a_noadj=fread("~/t2a_out_invnorm.txt")
-t2a_ogtt=fread("~/t2a_ogtt_out.txt")
-t2x_noadj=fread("~/t2x_out_invnorm.txt")
-t2x_ogtt=fread("~/t2x_ogtt_out.txt")
-t1=merge(t1_noadj[,c("Id","Name","#Genes","OddsRatio","P-Value","FDR")], t1_ogtt[,c("Id","OddsRatio","P-Value","FDR")], by="Id")
-colnames(t1)=c("Id","Name","#Genes","OR_noadj","P_noadj","FDR_noadj","OR_ogtt","P_ogtt","FDR_ogtt")
-t1$cell=rep("Type 1", nrow(t1))
-t2a=merge(t2a_noadj[,c("Id","Name","#Genes","OddsRatio","P-Value","FDR")], t2a_ogtt[,c("Id","OddsRatio","P-Value","FDR")], by="Id")
-colnames(t2a)=c("Id","Name","#Genes","OR_noadj","P_noadj","FDR_noadj","OR_ogtt","P_ogtt","FDR_ogtt")
-t2a$cell=rep("Type 2a", nrow(t2a))
-t2x=merge(t2x_noadj[,c("Id","Name","#Genes","OddsRatio","P-Value","FDR")], t2x_ogtt[,c("Id","OddsRatio","P-Value","FDR")], by="Id")
-colnames(t2x)=c("Id","Name","#Genes","OR_noadj","P_noadj","FDR_noadj","OR_ogtt","P_ogtt","FDR_ogtt")
-t2x$cell=rep("Type 2x",nrow(t2x))
-
-all=rbind(t1, t2a, t2x)
-all$log10p_noadj=-log10(all$P_noadj)
-all$log10p_ogtt=-log10(all$P_ogtt)
-all$log10p_noadj[which(all$OR_noadj<1)]=-all$log10p_noadj[which(all$OR_noadj<1)]
-all$log10p_ogtt[which(all$OR_ogtt<1)]=-all$log10p_ogtt[which(all$OR_ogtt<1)]
-
-all$Significance=rep("Neither", nrow(all))
-all$Significance[which(all$FDR_noadj<0.05 & all$FDR_ogtt<0.05)]="Both"
-all$Significance[which(all$FDR_noadj<0.05 & all$FDR_ogtt>0.05)]="No OGTT adjustment only"
-all$Significance[which(all$FDR_noadj>0.05 & all$FDR_ogtt<0.05)]="OGTT adjustment only"
-all$Significance=factor(all$Significance, levels=c("Both","No OGTT adjustment only","OGTT adjustment only","Neither"))
-
-sigcols=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd")
-b=ggplot(all, aes(x=log10p_noadj, y=log10p_ogtt, color=Significance))+geom_point(size=0.7)+scale_x_continuous(limits=c(-10.5,10.5))+scale_y_continuous(limits=c(-10.5,10.5))+theme_bw()+scale_color_manual(values=sigcols)+geom_abline(intercept=0, slope=1, linetype="dotted")+geom_hline(linetype="dotted",yintercept=0)+geom_vline(linetype="dotted",xintercept=0)+xlab("Signed -log10 p-value:\nNo OGTT adjustment")+ylab("Signed -log10 p-value:\nOGTT adjustment")+facet_grid(.~cell)+theme(legend.position="none",strip.background=element_rect(fill=NA, color=NA),plot.margin=unit(c(5.5,90,5.5,90),"pt"))
-
-noadj=fread("../snatac/all.atac.results")
-noadj$chrom=unlist(strsplit(noadj$peak, ":"))[seq(1, nrow(noadj)*3, by=3)]
-noadj$Chromosome=rep("Autosomal", nrow(noadj))
-noadj$Chromosome[which(noadj$chrom=="chrX")]="X"
-ogtt=fread("../snatac/all.atac.ogtt.results")
-celltypes=c("Type_1","Type_2a","Type_2x","Endothelial","Mesenchymal_Stem_Cell","Macrophage","Neuromuscular_junction","Neuronal","Satellite_Cell","Smooth_Muscle","T_cell","Adipocyte")
-
-breaks=c(-100,-50,0,50,100)
-labels=c("-100","-50","0","50","100")
-sigcolors=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd")
-
-for (c in celltypes){
-	no=noadj[which(noadj$cell==c),c("peak","cell","Chromosome","log2FoldChange","pvalue","fdr")]
-	og=ogtt[which(ogtt$cell==c),c("peak","log2FoldChange","pvalue","fdr")]
-	both=merge(no, og, by="peak")
-	colnames(both)=c("peak","cell","Chromosome","l2fc_no","p_no","fdr_no","l2fc_ogtt","p_ogtt","fdr_ogtt")
-	both$log10p_no=-log10(both$p_no)
-	both$log10p_no[which(both$l2fc_no<0)]=-both$log10p_no[which(both$l2fc_no<0)]
-	both$log10p_ogtt=-log10(both$p_ogtt)
-	both$log10p_ogtt[which(both$l2fc_ogtt<0)]=-both$log10p_ogtt[which(both$l2fc_ogtt<0)]
-	both$Significance=rep("Neither", nrow(both))
-	both$Significance[which(both$fdr_no<0.05 & both$fdr_ogtt<0.05)]="Both"
-	both$Significance[which(both$fdr_no<0.05 & both$fdr_ogtt>0.05)]="No adjustment only"
-	both$Significance[which(both$fdr_no>0.05 & both$fdr_ogtt<0.05)]="OGTT adjustment only"
-	both$Significance=factor(both$Significance, levels=c("Both","No adjustment only","OGTT adjustment only","Neither"))
-	bothsig=both[which(both$Significance=="Both")]
-	concordance=(sum(bothsig$l2fc_no>0 & bothsig$l2fc_ogtt>0)+sum(bothsig$l2fc_no<0 & bothsig$l2fc_ogtt<0))/nrow(bothsig)
-	concordance=round(concordance, digits=2)
-	aut=bothsig[which(bothsig$Chromosome=="Autosomal"),]
-	autc=(sum(aut$l2fc_no>0 & aut$l2fc_ogtt>0)+sum(aut$l2fc_no<0 & aut$l2fc_ogtt<0))/nrow(aut)
-	autc=round(autc, digits=2)
-	if (c=="Type_1"){ res=both}
-	else {res=rbind(res, both)}
-}
-
-res$cell[which(res$cell=="Mesenchymal_Stem_Cell")]="Fibro-adipogenic progenitor"
-res$cell=gsub("_"," ", res$cell)
-
-c=ggplot(res, aes(x=log10p_no, y=log10p_ogtt))+facet_wrap(cell~., ncol=6)+ylab("Signed -log10 p-value: OGTT adjustment")+geom_point(aes(color=Significance))+theme_bw()+xlab("Signed -log10 p-value: No OGTT adjustment")+scale_y_continuous(breaks=breaks, labels=labels, limits=c(-1e+02, 1e+02))+scale_x_continuous(breaks=breaks, labels=labels, limits=c(-1e+02, 1e+02))+geom_hline(yintercept=0, linetype="dotted")+geom_vline(xintercept=0, linetype="dotted")+geom_abline(intercept=0, slope=1, linetype="dotted")+scale_shape_manual(values=c(16,17,18))+scale_size_manual(values=c(0.8,1.2,1.5))+scale_color_manual(values=sigcolors)+theme(legend.position="bottom", strip.background=element_rect(fill=NA, color=NA))+guides(color=guide_legend(override.aes=list(size=2)))
-
-tiff("~/plot.tiff", units="in", width=11, height=13, res=200)
-grid.arrange(a,b,c, heights=c(2,1.3,2))
+tiff("~/plot.tiff", units="mm", width=160, height=180, res=300)
+print(ggplot(res, aes(x=FC_1, y=FC_2, shape=Chromosome))+facet_wrap(cell~.,strip.position="left",nrow=3)+ggtitle(gsub("_"," ",c1))+ylab("Signed -log10 p-value:")+geom_point(aes(color=Significance,size=Chromosome))+geom_text(aes(label=Concordance,y=-90,x=100),hjust=1,size=2,check_overlap=TRUE)+geom_text(aes(label=AutConcordance, y=-45, x=100), hjust=1, size=2,check_overlap=TRUE)+theme_bw()+xlab(paste("Signed -log10 p-value: ",cellname))+scale_x_continuous(breaks=breaks, labels=labels,limits=c(-1e+02,1e+02))+scale_y_continuous(labels=labels,breaks=breaks, limits=c(-1e+02,1e+02))+theme(plot.title=element_text(size=7),legend.title=element_text(size=7),strip.placement="outside",legend.position="bottom",axis.text=element_text(size=7),strip.text=element_text(size=7),strip.background=element_rect(fill="white",color=NA), legend.text=element_text(size=7),axis.title=element_text(size=7))+geom_hline(yintercept=0, linetype="dotted")+geom_vline(xintercept=0, linetype="dotted")+geom_abline(intercept=0, slope=1, linetype="dotted")+scale_shape_manual(values=c(16,17,18))+scale_size_manual(values=c(0.8,1.2,1.5))+scale_color_manual(values=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd"))+guides(color=guide_legend(nrow=4, title.position="top"),shape=guide_legend(nrow=3, override.aes=list(size=2), title.position="top")))
 dev.off()
-
-
+}
 
