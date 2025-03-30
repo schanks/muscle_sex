@@ -30,7 +30,7 @@ for (i in 1:nrow(cell_map)){
 
 	index=cell_map$list[i]
 	pds=pds.orig[[index]]
-	pds=pds[which(pds$tot_nuc>10),]
+	pds=pds[which(pds$tot_nuc>=10),]
 	samps.drop10=pds$labelcode
 
 	#Downsample people
