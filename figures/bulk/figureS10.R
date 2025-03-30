@@ -1,66 +1,67 @@
-library(data.table)
 library(ggplot2)
+library(data.table)
+library(gridExtra)
 
-bulk=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/bulk_adjprop/hg38.filter22323.bulk.SEX.M.results.tab")
-bulk=bulk[which(bulk$baseMean!=0),]
-bulk$bfdr=p.adjust(bulk$pvalue, method="fdr")
-bulk$bulksp=-log10(bulk$pvalue)
-bulk$bulksp[which(bulk$log2FoldChange<0)]=-bulk$bulksp[which(bulk$log2FoldChange<0)]
+adjprop=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/bulk_adjprop/hg38.filter22323.bulk.SEX.M.results.tab")
+noadj=fread("noadj/noadj.results.tab")
+adjprop$fdr=p.adjust(adjprop$pvalue, method="fdr")
+noadj$fdr=p.adjust(noadj$pvalue, method="fdr")
+adjprop$log10p=-log10(adjprop$pvalue)
+adjprop$log10p[which(adjprop$log2FoldChange<0)]=-adjprop$log10p[which(adjprop$log2FoldChange<0)]
+noadj$log10p=-log10(noadj$pvalue)
+noadj$log10p[which(noadj$log2FoldChange<0)]=-noadj$log10p[which(noadj$log2FoldChange<0)]
 
-pseudo=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/pbulk_adjprop/pb.SEX.M.results.tab")
-pseudo=pseudo[which(pseudo$baseMean!=0),]
-pseudo$pfdr=p.adjust(pseudo$pvalue, method="fdr")
-pseudo$pbulksp=-log10(pseudo$pvalue)
-pseudo$pbulksp[which(pseudo$log2FoldChange<0)]=-pseudo$pbulksp[which(pseudo$log2FoldChange<0)]
-pseudo$gene=unlist(strsplit(pseudo$gene,"[.]"))[seq(1, nrow(pseudo)*2, by=2)]
-
-
-both=merge(bulk[,c("gene","bulksp","symbol","gene_type","chr","bfdr")], pseudo[,c("gene","pbulksp","pfdr")], by="gene")
+both=merge(noadj[,c("gene","symbol","log10p","fdr")], adjprop[,c("gene","log10p","fdr")], by="gene",all=TRUE)
+colnames(both)[3:6]=c("p_no","f_no","p_adj","f_adj")
 both$Significance=rep("Neither", nrow(both))
-both$Significance[which(both$bfdr<0.05 & both$pfdr>0.05)]="Bulk only"
-both$Significance[which(both$bfdr>0.05 & both$pfdr<0.05)]="Pseudobulk only"
-both$Significance[which(both$bfdr<0.05 & both$pfdr<0.05)]="Both"
-both$Significance=factor(both$Significance, levels=c("Both","Bulk only","Pseudobulk only","Neither"))
+both$Significance[which(both$f_no<0.05 & both$f_adj<0.05)]="Both"
+both$Significance[which(both$f_no<0.05 & both$f_adj>0.05)]="Unadjusted only"
+both$Significance[which(both$f_no>0.05 & both$f_adj<0.05)]="Adjusted only"
+both$Significance=factor(both$Significance, levels=c("Both","Unadjusted only","Adjusted only","Neither"))
 
-bulk_count=readRDS("/net/snowwhite/home/aujackso/sn_muscle_2023/data/bulk.hg38.counts.Rds")
+breaks=c(-100,-50,0,50,100)
+labels=c("-100","-50","0","50","100")
+sigcols=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd")
 
-pbulk_count=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/data/pbulk_counts.allgenes.txt")
+a=ggplot(both, aes(x=p_no, y=p_adj, color=Significance))+geom_point(size=0.3)+xlab("Signed -log10 p-value:\nNo adjustment")+ylab("\n\nSigned -log10 p-value:\nAdjustment by estimated\ncell-type proporitons")+theme_bw()+scale_x_continuous(breaks=breaks, labels=labels,limits=c(-1e+02,1e+02))+scale_y_continuous(labels=labels,breaks=breaks, limits=c(-1e+02,1e+02))+theme(legend.title=element_text(size=8),legend.text=element_text(size=7),axis.title=element_text(size=7),axis.text=element_text(size=7))+geom_hline(yintercept=0, linetype="dotted")+geom_vline(xintercept=0, linetype="dotted")+geom_abline(intercept=0, slope=1, linetype="dotted")+scale_color_manual(values=sigcols)+guides(color=guide_legend(nrow=4, title.position="top", override.aes=list(size=1.5)))
 
-meancpm<-function(x){
-	x=as.numeric(x)
-	return(mean(x))
-}
+t1count=fread("../snrna/cpms/t1_cpm.tab")
+t1col=c(ncol(t1count),grep("ENSG00000092054", colnames(t1count)))
+t1count=t1count[,..t1col]
+colnames(t1count)=c("labelcode","cpm")
+t1count$cell=rep("Type 1", nrow(t1count))
+t2acount=fread("../snrna/cpms/t2a_cpm.tab")
+t2acol=c(ncol(t2acount),grep("ENSG00000092054", colnames(t2acount)))
+t2acount=t2acount[,..t2acol]
+colnames(t2acount)=c("labelcode","cpm")
+t2acount$cell=rep("Type 2a", nrow(t2acount))
+t2xcount=fread("../snrna/cpms/t2x_cpm.tab")
+t2xcol=c(ncol(t2xcount),grep("ENSG00000092054", colnames(t2xcount)))
+t2xcount=t2xcount[,..t2xcol]
+colnames(t2xcount)=c("labelcode","cpm")
+t2xcount$cell=rep("Type 2x", nrow(t2xcount))
+bulkcpm=fread("../snrna/cpms/bulk_cpm.tab")
+bulkcol=c(ncol(bulkcpm),grep("ENSG00000092054", colnames(bulkcpm)))
+bulkcpm=bulkcpm[,..bulkcol]
+colnames(bulkcpm)=c("labelcode","cpm")
+bulkcpm$cell=rep("Bulk", nrow(bulkcpm))
+cpm=rbind(t1count, t2acount, t2xcount, bulkcpm)
+pheno=fread("/net/snowwhite/home/aujackso/snRNAsnATAC_paper1/data/tissue.csv")
+cpm=merge(cpm, pheno[,c("labelcode","SEX")], by="labelcode")
+cpm=as.data.frame(cpm)
 
-bulkmean=as.data.frame(apply(bulk_count, 1, meancpm))
-colnames(bulkmean)="bulkcpm"
-bulk_count=as.data.frame(bulk_count)
-bulkmean$gene=rownames(bulk_count)
-pbulkmean=as.data.frame(apply(pbulk_count[,-1], 1, meancpm))
-colnames(pbulkmean)="pbulkcpm"
-pbulkmean$gene=unlist(strsplit(pbulk_count$gene,"[.]"))[seq(1, nrow(pbulk_count)*2, by=2)]
+b1=ggplot(cpm[which(cpm$cell=="Bulk"),], aes(color=SEX, x=SEX, y=cpm))+theme_bw()+geom_boxplot(fill=NA, outlier.shape=NA)+geom_jitter(size=0.1,height=0)+facet_grid(.~cell)+scale_color_manual(values=c("#e41a1c","#377eb8"))+theme(axis.title.y=element_text(size=7),strip.background=element_rect(color=NA, fill=NA), axis.text=element_text(size=6), strip.text=element_text(size=7), legend.position="none", axis.title.x=element_blank())+ylab("CPMs")
 
-both=merge(both, pbulkmean, by="gene")
-both=merge(both, bulkmean, by="gene")
-both$pbulkbin=cut(both$pbulkcpm, breaks=c(-1,1,10,100,1000,10000,Inf), labels=FALSE)
-both$bulkbin=cut(both$bulkcpm, breaks=c(-1,1,10,100,1000,10000,Inf), labels=FALSE)
-both$pbulkbin[which(both$pbulkbin==1)]="Pseudobulk\ncount<1"
-both$pbulkbin[which(both$pbulkbin==2)]="Pseudobulk\n1<count<10"
-both$pbulkbin[which(both$pbulkbin==3)]="Pseudobulk\n10<count<100"
-both$pbulkbin[which(both$pbulkbin==4)]="Pseudobulk\n100<count<1k"
-both$pbulkbin[which(both$pbulkbin==5)]="Pseudobulk\n1k<count<10k"
-both$pbulkbin[which(both$pbulkbin==6)]="Pseudobulk\ncount>10k"
-both$bulkbin[which(both$bulkbin==1)]="Bulk\ncount<1"
-both$bulkbin[which(both$bulkbin==2)]="Bulk\n1<count<10"
-both$bulkbin[which(both$bulkbin==3)]="Bulk\n10<count<100"
-both$bulkbin[which(both$bulkbin==4)]="Bulk\n100<count<1k"
-both$bulkbin[which(both$bulkbin==5)]="Bulk\n1k<count<10k"
-both$bulkbin[which(both$bulkbin==6)]="Bulk\ncount>10k"
-both$pbulkbin=factor(both$pbulkbin, levels=c("Pseudobulk\ncount<1","Pseudobulk\n1<count<10","Pseudobulk\n10<count<100","Pseudobulk\n100<count<1k","Pseudobulk\n1k<count<10k","Pseudobulk\ncount>10k"))
-both$bulkbin=factor(both$bulkbin, levels=c("Bulk\ncount<1","Bulk\n1<count<10","Bulk\n10<count<100","Bulk\n100<count<1k","Bulk\n1k<count<10k","Bulk\ncount>10k"))
+b2=ggplot(cpm[which(cpm$cell!="Bulk"),], aes(color=SEX, x=SEX, y=cpm))+theme_bw()+geom_boxplot(fill=NA, outlier.shape=NA)+geom_jitter(size=0.1,height=0)+facet_grid(.~cell)+scale_color_manual(values=c("#e41a1c","#377eb8"))+theme(axis.title.y=element_text(size=7),strip.background=element_rect(color=NA, fill=NA), axis.text=element_text(size=6), strip.text=element_text(size=7), legend.position="none", axis.title.x=element_blank())+ylab("CPMs")
 
-tiff("~/plot.tiff", width=12, height=10, units="in", res=300)
-ggplot(both[which(!is.element(both$chr, c("M","X","Y")))], aes(x=bulksp, y=pbulksp, color=Significance))+geom_point(size=0.8)+geom_vline(xintercept=0)+geom_hline(yintercept=0)+facet_grid(pbulkbin~bulkbin)+scale_x_continuous(limits=c(-10,10))+scale_y_continuous(limits=c(-10,10))+theme_bw()+scale_color_manual(values=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd"))+xlab("Bulk signed -log10 p-value")+ylab("Pseudobulk signed -log10 p-value")+theme(strip.background=element_rect(fill=NA, color=NA),strip.text=element_text(size=12), axis.title=element_text(size=14), axis.text=element_text(size=12), legend.title=element_text(size=14), legend.text=element_text(size=12))
+btitle=ggplot(cpm, aes(x=1,y=1))+geom_text(size=3, hjust=0,check_overlap=TRUE, label="MYH7", fontface="italic")+scale_x_continuous(limits=c(1,10))+theme_void()+theme(axis.text=element_blank(), axis.ticks=element_blank(), axis.title=element_blank(),plot.margin=unit(c(5.5,5.5,-8,5.5),"pt"))
+
+b=grid.arrange(btitle, b1, b2, widths=c(1,2.5), heights=c(2,9), layout_matrix=rbind(c(1,1),c(2,3)))
+
+tiff("~/plot.tiff", height=160, width=140, units="mm", res=300)
+grid.arrange(a, b, heights=c(1,1))
 dev.off()
+
 
 
 

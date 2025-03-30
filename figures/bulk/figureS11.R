@@ -1,41 +1,41 @@
 library(data.table)
 library(ggplot2)
-library(gridExtra)
 
 
-bulkcpm=fread("../snrna/cpms/bulk_cpm.tab")
-pbulkcpm=fread("../snrna/cpms/pbulk_cpm.tab")
-t2acpm=fread("../snrna/cpms/t2a_cpm.tab")
-t2xcpm=fread("../snrna/cpms/t2x_cpm.tab")
-bulkcpm$`Cell type`=rep("Bulk", nrow(bulkcpm))
-pbulkcpm$`Cell type`=rep("Pseudobulk", nrow(pbulkcpm))
-t2acpm$`Cell type`=rep("Type 2a", nrow(t2acpm))
-t2xcpm$`Cell type`=rep("Type 2x", nrow(t2xcpm))
-t2acol=grep("ENSG00000122705", colnames(t2acpm))
-t2xcol=grep("ENSG00000122705", colnames(t2xcpm))
-pcol=grep("ENSG00000122705", colnames(pbulkcpm))
-fiber=rbind(as.data.frame(t2acpm)[,c(41438,t2acol,41439)], as.data.frame(t2xcpm)[,c(40528,t2xcol,40529)], as.data.frame(pbulkcpm)[,c(58963,pcol,58964)])
-colnames(fiber)[2]="ENSG00000122705"
-cpm=rbind(fiber, bulkcpm[,c("labelcode","ENSG00000122705","Cell type")])
-pheno=fread("/net/snowwhite/home/aujackso/snRNAsnATAC_paper1/data/tissue.csv")
-cpm=merge(cpm, pheno[,c("labelcode","SEX")], by="labelcode")
-print(max(cpm$ENSG00000122705))
+bulk=fread("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/bulk_adjprop/hg38.filter22323.bulk.SEX.M.results.tab")
+gtex=fread("/net/snowwhite/home/schanks/muscle/bulk/gtex/gtex_fiber_results.tab")
+gtex$gene=unlist(strsplit(gtex$gene,"[.]"))[seq(1, nrow(gtex)*2, by=2)]
+bulk$ffdr=p.adjust(bulk$pvalue, method="fdr")
+gtex$gfdr=p.adjust(gtex$pvalue, method="fdr")
+bulk$bulk=-log10(bulk$pvalue)
+bulk$bulk[which(bulk$log2FoldChange<0)]=-bulk$bulk[which(bulk$log2FoldChange<0)]
+gtex$gtex=-log10(gtex$pvalue)
+gtex$gtex[which(gtex$log2FoldChange<0)]=-gtex$gtex[which(gtex$log2FoldChange<0)]
+bulk$Chromosome=rep("Autosomal",nrow(bulk))
+bulk$Chromosome[which(bulk$chr=="X")]="X"
+bulk=as.data.frame(bulk)
+bulk=bulk[which(bulk$chr!="Y"),]
 
-cpm$pval=rep(1, nrow(cpm))
-cpm$pval[which(cpm$`Cell type`=="Type 2a")]="p=0.005"
-cpm$pval[which(cpm$`Cell type`=="Type 2x")]="p=0.003"
-cpm$pval[which(cpm$`Cell type`=="Pseudobulk")]="p=0.001"
-cpm$pval[which(cpm$`Cell type`=="Bulk")]="p=3x10-9"
-cpm$facet=paste(cpm$`Cell type`, cpm$pval, sep="\n")
+all=merge(bulk, gtex[,c("gene","gfdr","gtex")], by="gene")
+all$Significance=rep("Neither", nrow(all))
+all$Significance[which(all$ffdr<0.05 & all$gfdr<0.05)]="Both"
+all$Significance[which(all$ffdr<0.05 & all$gfdr>0.05)]="FUSION only"
+all$Significance[which(all$ffdr>0.05 & all$gfdr<0.05)]="GTEx only"
+all$Significance=factor(all$Significance, levels=c("Both","FUSION only","GTEx only","Neither"))
+both=all[which(all$Significance=="Both"),]
+concordance=(sum(both$bulk>0 & both$gtex>0)+sum(both$bulk<0 & both$gtex<0))/nrow(both)
+aut=both[which(both$Chromosome!="X" & both$Chromosome!="Y"),]
+autc=(sum(aut$bulk>0 & aut$gtex>0)+sum(aut$bulk<0 & aut$gtex<0))/nrow(aut)
+all$Concordance=rep(round(concordance, digits=2), nrow(all))
+all$Concordance=paste("All:\n", all$Concordance, sep="")
+all$AutConcordance=rep(round(autc, digits=2), nrow(all))
+all$AutConcordance=paste("Autosomal:\n", all$AutConcordance, sep="")
 
-cpm$facet=factor(cpm$facet, levels=c("Type 2a\np=0.005", "Type 2x\np=0.003","Pseudobulk\np=0.001","Bulk\np=3x10-9"))
 
-cpm=cpm[which(cpm$ENSG00000122705<200),]
+breaks=c(-100,-50,0,50,100)
+labels=c("-100","-50","0","50","100")
 
-tiff("~/plot.tiff", height=140, width=180, units="mm", res=300)
-ggplot(cpm, aes(color=SEX,x=SEX, y=ENSG00000122705))+theme_bw()+geom_boxplot(fill=NA, outlier.shape=NA)+geom_jitter(size=0.05)+facet_wrap(.~facet, scales="free", nrow=1)+scale_color_manual(values=c("#e41a1c","#377eb8"))+theme(strip.background=element_rect(color=NA, fill=NA), axis.text.y=element_text(size=6, angle=45), axis.text.x=element_text(size=6),panel.spacing.x=unit(0,"in"),strip.text=element_text(size=7), legend.position="none", axis.title=element_blank(), plot.title=element_text(face="italic"), plot.margin=unit(c(0.07,0.07,0.07,0), "in"))
+tiff("~/plot.tiff", units="in", width=4, height=5, res=300)
+print(ggplot(all, aes(x=bulk, y=gtex, shape=Chromosome))+ylab("Signed -log10 p-value: GTEx")+xlab("Signed -log10 p-value: FUSION Bulk")+geom_point(aes(color=Significance,size=Chromosome))+geom_text(aes(label=Concordance,y=-90,x=100),hjust=1,check_overlap=TRUE)+geom_text(aes(label=AutConcordance, y=-45, x=100), hjust=1, check_overlap=TRUE)+theme_bw()+scale_x_continuous(breaks=breaks, labels=labels,limits=c(-1e+02,1e+02))+scale_y_continuous(labels=labels,breaks=breaks, limits=c(-1e+02,1e+02))+theme(plot.title=element_text(size=16),legend.title=element_text(size=10),strip.placement="outside",legend.position="bottom",axis.text=element_text(size=9),strip.text=element_text(size=10),strip.background=element_rect(fill="white",color=NA))+geom_hline(yintercept=0, linetype="dotted")+geom_vline(xintercept=0, linetype="dotted")+geom_abline(intercept=0, slope=1, linetype="dotted")+scale_shape_manual(values=c(16,17,18))+scale_size_manual(values=c(0.8,1.2,1.5))+scale_color_manual(values=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd"))+guides(color=guide_legend(nrow=4, title.position="top"),shape=guide_legend(nrow=3, override.aes=list(size=2), title.position="top")))
 dev.off()
-
-
-
 
