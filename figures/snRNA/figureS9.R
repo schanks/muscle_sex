@@ -2,134 +2,122 @@ library(data.table)
 library(ggplot2)
 library(gridExtra)
 
-results=fread("all.expr.results")
-results$CHR=rep("Autosomal", nrow(results))
-results$CHR[which(results$chrom=="chrX")]="ChrX"
-results$CHR[which(results$chrom=="chrY")]="ChrY"
-results$Direction=as.numeric(results$log2FoldChange>0)
-BP=readRDS("/net/dumbo/home/dciotlos/FUSION/goBP.rds")
-map=fread("/net/dumbo/home/dciotlos/R_Scripts/ensembl_to_entrez_V1_apr21.csv")
-oxi=BP$`GO:0006119`
-oxi=as.data.frame(oxi)
-colnames(oxi)="Entrez_ID"
-results=results[which(results$cell=="Type_1" | results$cell=="Type_2a" | results$cell=="Type_2x"),]
-results$ENSEMBL=unlist(strsplit(results$gene, "[.]",))[seq(1, nrow(results)*2, by=2)]
-results=merge(results, map[,c("ENSEMBL","Entrez_ID")], by="ENSEMBL")
-results=results[which(results$chrom!="chrX" & results$chrom!="chrY"),]
+#Panel A
+noadj=fread("all.expr.results")
+noadj=noadj[which(noadj$chrom!="chrY"),]
+noadj$Chromosome=rep("Autosomal", nrow(noadj))
+noadj$Chromosome[which(noadj$chrom=="chrX")]="X"
+ogtt=fread("all.expr.ogtt.results")
 
-oxires=merge(oxi, results, by="Entrez_ID")
-oxires=unique(oxires)
-oxires$log10p=-log10(oxires$pvalue)
-oxires$log10p[which(oxires$log10p=="Inf")]=max(oxires$log10p[which(oxires$log10p!="Inf")])
-mean_oxi=aggregate(oxires$log10p, by=list(oxires$gene), FUN=mean)
-mean_oxi=mean_oxi[order(mean_oxi$x, decreasing=TRUE),]
-oxires$gene=factor(oxires$gene, levels=c(mean_oxi$`Group.1`))
-layer_interval=11.2
-oxires$testy=oxires$log10p+5
-oxires$testy[which(oxires$cell=="Type_1")]=oxires$testy[which(oxires$cell=="Type_1")]+layer_interval*2
-oxires$testy[which(oxires$cell=="Type_2a")]=oxires$testy[which(oxires$cell=="Type_2a")]+layer_interval
-oxires$testend=rep(5, nrow(oxires))
-oxires$testend[which(oxires$cell=="Type_1")]=5+layer_interval*2
-oxires$testend[which(oxires$cell=="Type_2a")]=5+layer_interval*1
-oxires=oxires[order(oxires$gene),]
-oxires=oxires[which(is.element(oxires$gene, unique(oxires$gene)[1:20])),]
+celltypes=c("Type_1","Type_2a","Type_2x","Endothelial","Mesenchymal_Stem_Cell","Macrophage","Neuromuscular_junction","Neuronal","Satellite_Cell","Smooth_Muscle")
 
-genelist=unique(as.character(oxires$gene))
+breaks=c(-100,-50,0,50,100)
+labels=c("-100","-50","0","50","100")
+sigcolors=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd")
 
-t1count=fread("cpms/t1_cpm.tab")
-t1cols=c(which(is.element(colnames(t1count), genelist)),ncol(t1count))
-t1count=t1count[,..t1cols]
-t2acount=fread("cpms/t2a_cpm.tab")
-t2acols=c(which(is.element(colnames(t2acount), genelist)),ncol(t2acount))
-t2acount=t2acount[,..t2acols]
-t2xcount=fread("cpms/t2x_cpm.tab")
-t2xcols=c(which(is.element(colnames(t2xcount), genelist)),ncol(t2xcount))
-t2xcount=t2xcount[,..t2xcols]
-pheno=fread("/net/snowwhite/home/aujackso/snRNAsnATAC_paper1/data/tissue.csv")
-t1count=merge(t1count, pheno[,c("labelcode","SEX")], by="labelcode")
-t2acount=merge(t2acount, pheno[,c("labelcode","SEX")], by="labelcode")
-t2xcount=merge(t2xcount, pheno[,c("labelcode","SEX")], by="labelcode")
-t1cpm=melt(t1count, id.vars=c("labelcode","SEX"))
-t2acpm=melt(t2acount, id.vars=c("labelcode","SEX"))
-t2xcpm=melt(t2xcount, id.vars=c("labelcode","SEX"))
-t1cpm$`Fiber type`=rep("Type 1", nrow(t1cpm))
-t2acpm$`Fiber type`=rep("Type 2a", nrow(t2acpm))
-t2xcpm$`Fiber type`=rep("Type 2x", nrow(t2xcpm))
-melted=rbind(t1cpm, t2acpm,t2xcpm)
-melted$Sex=as.factor(melted$SEX)
-melted$`Fiber type`=as.factor(melted$`Fiber type`)
-colnames(melted)[3]="gene"
+for (c in celltypes){
+	no=noadj[which(noadj$cell==c),c("gene","cell","Chromosome","log2FoldChange","pvalue","fdr")]
+	og=ogtt[which(ogtt$cell==c),c("gene","log2FoldChange","pvalue","fdr")]
+	both=merge(no, og, by="gene")
+	colnames(both)=c("gene","cell","Chromosome","l2fc_no","p_no","fdr_no","l2fc_ogtt","p_ogtt","fdr_ogtt")
+	both$log10p_no=-log10(both$p_no)
+	both$log10p_no[which(both$l2fc_no<0)]=-both$log10p_no[which(both$l2fc_no<0)]
+	both$log10p_ogtt=-log10(both$p_ogtt)
+	both$log10p_ogtt[which(both$l2fc_ogtt<0)]=-both$log10p_ogtt[which(both$l2fc_ogtt<0)]
+	both$Significance=rep("Neither", nrow(both))
+	both$Significance[which(both$fdr_no<0.05 & both$fdr_ogtt<0.05)]="Both"
+	both$Significance[which(both$fdr_no<0.05 & both$fdr_ogtt>0.05)]="No adjustment only"
+	both$Significance[which(both$fdr_no>0.05 & both$fdr_ogtt<0.05)]="OGTT adjustment only"
+	both$Significance=factor(both$Significance, levels=c("Both","No adjustment only","OGTT adjustment only","Neither"))
+	bothsig=both[which(both$Significance=="Both")]
+	concordance=(sum(bothsig$l2fc_no>0 & bothsig$l2fc_ogtt>0)+sum(bothsig$l2fc_no<0 & bothsig$l2fc_ogtt<0))/nrow(bothsig)
+	concordance=round(concordance, digits=2)
+	aut=bothsig[which(bothsig$Chromosome=="Autosomal"),]
+	autc=(sum(aut$l2fc_no>0 & aut$l2fc_ogtt>0)+sum(aut$l2fc_no<0 & aut$l2fc_ogtt<0))/nrow(aut)
+	autc=round(autc, digits=2)
+	if (c=="Type_1"){ res=both}
+	else {res=rbind(res, both)}
+}
 
+res$cell[which(res$cell=="Mesenchymal_Stem_Cell")]="Fibro-adipogenic progenitor"
+res$cell=gsub("_"," ",res$cell)
 
-results$cell=gsub("_"," ",results$cell)
-colnames(results)[9]="Fiber type"
-melted=merge(melted, results[,c("gene","gene_name","Fiber type","pvalue")], by=c("gene","Fiber type"))
-melted$pvalue=paste("p=",signif(melted$pvalue,2),sep="")
+a=ggplot(res, aes(x=log10p_no, y=log10p_ogtt))+facet_wrap(cell~., ncol=5)+ylab("Signed -log10 p-value: OGTT adjustment")+geom_point(aes(color=Significance, size=Chromosome))+theme_bw()+xlab("Signed -log10 p-value: No OGTT adjustment")+scale_y_continuous(breaks=breaks, labels=labels, limits=c(-1e+02, 1e+02))+scale_x_continuous(breaks=breaks, labels=labels, limits=c(-1e+02, 1e+02))+geom_hline(yintercept=0, linetype="dotted")+geom_vline(xintercept=0, linetype="dotted")+geom_abline(intercept=0, slope=1, linetype="dotted")+scale_shape_manual(values=c(16,17,18))+scale_size_manual(values=c(0.8,1.2,1.5))+scale_color_manual(values=sigcolors)+theme(legend.position="none", strip.background=element_rect(fill=NA, color=NA))
 
-aplot=ggplot(melted, aes(x=`Fiber type`,y=value))+theme_bw()+geom_boxplot(aes(color=Sex),fill=NA, outlier.shape=NA,position=position_dodge(width=1))+scale_y_log10()+facet_wrap(gene_name~.,scales="free")+ylab("CPM")+scale_color_manual(values=c("#e41a1c","#377eb8"))+theme(panel.spacing.y=unit(0,"lines"),panel.spacing.x=unit(0.1, "lines"),strip.background=element_rect(color=NA, fill=NA), axis.text=element_text(size=7), strip.text.y=element_text(size=7),strip.text.x=element_text(size=7, face="italic"), axis.title=element_text(size=7), legend.position="none")
-atitle=ggplot(melted, aes(x=1,y=1))+geom_text(size=3, hjust=0, check_overlap=TRUE, label="Oxidative phosphorylation")+scale_x_continuous(limits=c(1,10))+theme_void()+theme(axis.text=element_blank(), axis.ticks=element_blank(), axis.title=element_blank(), plot.margin=unit(c(5.5,5.5,-8,5.5),"pt"))
-a=grid.arrange(atitle, aplot, heights=c(1,11))
+t1_noadj=fread("~/t1_out_invnorm.txt")
+t1_ogtt=fread("~/t1_ogtt_out.txt")
+t2a_noadj=fread("~/t2a_out_invnorm.txt")
+t2a_ogtt=fread("~/t2a_ogtt_out.txt")
+t2x_noadj=fread("~/t2x_out_invnorm.txt")
+t2x_ogtt=fread("~/t2x_ogtt_out.txt")
+t1=merge(t1_noadj[,c("Id","Name","#Genes","OddsRatio","P-Value","FDR")], t1_ogtt[,c("Id","OddsRatio","P-Value","FDR")], by="Id")
+colnames(t1)=c("Id","Name","#Genes","OR_noadj","P_noadj","FDR_noadj","OR_ogtt","P_ogtt","FDR_ogtt")
+t1$cell=rep("Type 1", nrow(t1))
+t2a=merge(t2a_noadj[,c("Id","Name","#Genes","OddsRatio","P-Value","FDR")], t2a_ogtt[,c("Id","OddsRatio","P-Value","FDR")], by="Id")
+colnames(t2a)=c("Id","Name","#Genes","OR_noadj","P_noadj","FDR_noadj","OR_ogtt","P_ogtt","FDR_ogtt")
+t2a$cell=rep("Type 2a", nrow(t2a))
+t2x=merge(t2x_noadj[,c("Id","Name","#Genes","OddsRatio","P-Value","FDR")], t2x_ogtt[,c("Id","OddsRatio","P-Value","FDR")], by="Id")
+colnames(t2x)=c("Id","Name","#Genes","OR_noadj","P_noadj","FDR_noadj","OR_ogtt","P_ogtt","FDR_ogtt")
+t2x$cell=rep("Type 2x",nrow(t2x))
 
-results=fread("all.expr.results")
-results$CHR=rep("Autosomal", nrow(results))
-results$CHR[which(results$chrom=="chrX")]="ChrX"
-results$CHR[which(results$chrom=="chrY")]="ChrY"
-results$Direction=as.numeric(results$log2FoldChange>0)
-results=results[which(results$chrom!="chrX" & results$chrom!="chrY"),]
-results=results[which(results$cell=="Type_1" | results$cell=="Type_2a" | results$cell=="Type_2x"),]
-results$ENSEMBL=unlist(strsplit(results$gene, "[.]",))[seq(1, nrow(results)*2, by=2)]
-CC=readRDS("/net/dumbo/home/dciotlos/FUSION/goCC.rds")
+all=rbind(t1, t2a, t2x)
+all$log10p_noadj=-log10(all$P_noadj)
+all$log10p_ogtt=-log10(all$P_ogtt)
+all$log10p_noadj[which(all$OR_noadj<1)]=-all$log10p_noadj[which(all$OR_noadj<1)]
+all$log10p_ogtt[which(all$OR_ogtt<1)]=-all$log10p_ogtt[which(all$OR_ogtt<1)]
 
-cav=CC$`GO:0005901`
-cav=as.data.frame(cav)
-colnames(cav)="Entrez_ID"
-results=merge(results, map[,c("ENSEMBL","Entrez_ID")], by="ENSEMBL")
-cavres=merge(cav, results, by="Entrez_ID")
-cavres$log10p=-log10(cavres$pvalue)
-cavres$log10p[which(cavres$log10p=="Inf")]=max(cavres$log10p[which(cavres$log10p!="Inf")])
-mean_cav=aggregate(cavres$log10p, by=list(cavres$gene), FUN=mean)
-mean_cav=mean_cav[order(mean_cav$x, decreasing=TRUE),]
-cavres$gene=factor(cavres$gene, levels=c(mean_cav$`Group.1`))
-cavres$cell=gsub("_"," ", cavres$cell)
-cavres=cavres[order(cavres$gene),]
-cavres=cavres[which(is.element(cavres$gene, unique(cavres$gene)[1:20])),]
+all$Significance=rep("Neither", nrow(all))
+all$Significance[which(all$FDR_noadj<0.05 & all$FDR_ogtt<0.05)]="Both"
+all$Significance[which(all$FDR_noadj<0.05 & all$FDR_ogtt>0.05)]="No OGTT adjustment only"
+all$Significance[which(all$FDR_noadj>0.05 & all$FDR_ogtt<0.05)]="OGTT adjustment only"
+all$Significance=factor(all$Significance, levels=c("Both","No OGTT adjustment only","OGTT adjustment only","Neither"))
 
-genelist=unique(as.character(cavres$gene))
+sigcols=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd")
+b=ggplot(all, aes(x=log10p_noadj, y=log10p_ogtt, color=Significance))+geom_point(size=0.7)+scale_x_continuous(limits=c(-10.5,10.5))+scale_y_continuous(limits=c(-10.5,10.5))+theme_bw()+scale_color_manual(values=sigcols)+geom_abline(intercept=0, slope=1, linetype="dotted")+geom_hline(linetype="dotted",yintercept=0)+geom_vline(linetype="dotted",xintercept=0)+xlab("Signed -log10 p-value:\nNo OGTT adjustment")+ylab("Signed -log10 p-value:\nOGTT adjustment")+facet_grid(.~cell)+theme(legend.position="none",strip.background=element_rect(fill=NA, color=NA),plot.margin=unit(c(5.5,90,5.5,90),"pt"))
 
-t1count=fread("cpms/t1_cpm.tab")
-t1cols=c(which(is.element(colnames(t1count), genelist)),ncol(t1count))
-t1count=t1count[,..t1cols]
-t2acount=fread("cpms/t2a_cpm.tab")
-t2acols=c(which(is.element(colnames(t2acount), genelist)),ncol(t2acount))
-t2acount=t2acount[,..t2acols]
-t2xcount=fread("cpms/t2x_cpm.tab")
-t2xcols=c(which(is.element(colnames(t2xcount), genelist)),ncol(t2xcount))
-t2xcount=t2xcount[,..t2xcols]
-pheno=fread("/net/snowwhite/home/aujackso/snRNAsnATAC_paper1/data/tissue.csv")
-t1count=merge(t1count, pheno[,c("labelcode","SEX")], by="labelcode")
-t2acount=merge(t2acount, pheno[,c("labelcode","SEX")], by="labelcode")
-t2xcount=merge(t2xcount, pheno[,c("labelcode","SEX")], by="labelcode")
-t1cpm=melt(t1count, id.vars=c("labelcode","SEX"))
-t2acpm=melt(t2acount, id.vars=c("labelcode","SEX"))
-t2xcpm=melt(t2xcount, id.vars=c("labelcode","SEX"))
-t1cpm$`Fiber type`=rep("Type 1", nrow(t1cpm))
-t2acpm$`Fiber type`=rep("Type 2a", nrow(t2acpm))
-t2xcpm$`Fiber type`=rep("Type 2x", nrow(t2xcpm))
-melted=rbind(t1cpm, t2acpm,t2xcpm)
-melted$Sex=as.factor(melted$SEX)
-melted$`Fiber type`=as.factor(melted$`Fiber type`)
-colnames(melted)[3]="gene"
+noadj=fread("../snatac/all.atac.results")
+noadj$chrom=unlist(strsplit(noadj$peak, ":"))[seq(1, nrow(noadj)*3, by=3)]
+noadj$Chromosome=rep("Autosomal", nrow(noadj))
+noadj$Chromosome[which(noadj$chrom=="chrX")]="X"
+ogtt=fread("../snatac/all.atac.ogtt.results")
+celltypes=c("Type_1","Type_2a","Type_2x","Endothelial","Mesenchymal_Stem_Cell","Macrophage","Neuromuscular_junction","Neuronal","Satellite_Cell","Smooth_Muscle","T_cell","Adipocyte")
 
-results$cell=gsub("_"," ",results$cell)
-colnames(results)[9]="Fiber type"
-melted=merge(melted, results[,c("gene","gene_name","Fiber type","pvalue")], by=c("gene","Fiber type"))
-melted$pvalue=paste("p=",signif(melted$pvalue,2),sep="")
+breaks=c(-100,-50,0,50,100)
+labels=c("-100","-50","0","50","100")
+sigcolors=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd")
 
-bplot=ggplot(melted, aes(x=`Fiber type`,y=value))+theme_bw()+geom_boxplot(aes(color=Sex),fill=NA, outlier.shape=NA,position=position_dodge(width=1))+scale_y_log10()+facet_wrap(gene_name~.,scales="free")+ylab("CPM")+scale_color_manual(values=c("#e41a1c","#377eb8"))+theme(panel.spacing.y=unit(0,"lines"),panel.spacing.x=unit(0.1,"lines"),strip.background=element_rect(color=NA, fill=NA), axis.text=element_text(size=7), strip.text.y=element_text(size=7),strip.text.x=element_text(size=7, face="italic"), axis.title=element_text(size=7), legend.position="none")
-btitle=ggplot(melted, aes(x=1,y=1))+geom_text(size=3, hjust=0, check_overlap=TRUE, label="Caveola")+scale_x_continuous(limits=c(1,10))+theme_void()+theme(axis.text=element_blank(), axis.ticks=element_blank(), axis.title=element_blank(), plot.margin=unit(c(5.5,5.5,-8,5.5),"pt"))
-b=grid.arrange(btitle, bplot, heights=c(1,11))
+for (c in celltypes){
+	no=noadj[which(noadj$cell==c),c("peak","cell","Chromosome","log2FoldChange","pvalue","fdr")]
+	og=ogtt[which(ogtt$cell==c),c("peak","log2FoldChange","pvalue","fdr")]
+	both=merge(no, og, by="peak")
+	colnames(both)=c("peak","cell","Chromosome","l2fc_no","p_no","fdr_no","l2fc_ogtt","p_ogtt","fdr_ogtt")
+	both$log10p_no=-log10(both$p_no)
+	both$log10p_no[which(both$l2fc_no<0)]=-both$log10p_no[which(both$l2fc_no<0)]
+	both$log10p_ogtt=-log10(both$p_ogtt)
+	both$log10p_ogtt[which(both$l2fc_ogtt<0)]=-both$log10p_ogtt[which(both$l2fc_ogtt<0)]
+	both$Significance=rep("Neither", nrow(both))
+	both$Significance[which(both$fdr_no<0.05 & both$fdr_ogtt<0.05)]="Both"
+	both$Significance[which(both$fdr_no<0.05 & both$fdr_ogtt>0.05)]="No adjustment only"
+	both$Significance[which(both$fdr_no>0.05 & both$fdr_ogtt<0.05)]="OGTT adjustment only"
+	both$Significance=factor(both$Significance, levels=c("Both","No adjustment only","OGTT adjustment only","Neither"))
+	bothsig=both[which(both$Significance=="Both")]
+	concordance=(sum(bothsig$l2fc_no>0 & bothsig$l2fc_ogtt>0)+sum(bothsig$l2fc_no<0 & bothsig$l2fc_ogtt<0))/nrow(bothsig)
+	concordance=round(concordance, digits=2)
+	aut=bothsig[which(bothsig$Chromosome=="Autosomal"),]
+	autc=(sum(aut$l2fc_no>0 & aut$l2fc_ogtt>0)+sum(aut$l2fc_no<0 & aut$l2fc_ogtt<0))/nrow(aut)
+	autc=round(autc, digits=2)
+	if (c=="Type_1"){ res=both}
+	else {res=rbind(res, both)}
+}
 
-tiff("~/plot.tiff", units="mm", height=180, width=180, res=300)
-grid.arrange(a,b, heights=c(1,1))
+res$cell[which(res$cell=="Mesenchymal_Stem_Cell")]="Fibro-adipogenic progenitor"
+res$cell=gsub("_"," ", res$cell)
+
+c=ggplot(res, aes(x=log10p_no, y=log10p_ogtt))+facet_wrap(cell~., ncol=6)+ylab("Signed -log10 p-value: OGTT adjustment")+geom_point(aes(color=Significance))+theme_bw()+xlab("Signed -log10 p-value: No OGTT adjustment")+scale_y_continuous(breaks=breaks, labels=labels, limits=c(-1e+02, 1e+02))+scale_x_continuous(breaks=breaks, labels=labels, limits=c(-1e+02, 1e+02))+geom_hline(yintercept=0, linetype="dotted")+geom_vline(xintercept=0, linetype="dotted")+geom_abline(intercept=0, slope=1, linetype="dotted")+scale_shape_manual(values=c(16,17,18))+scale_size_manual(values=c(0.8,1.2,1.5))+scale_color_manual(values=sigcolors)+theme(legend.position="bottom", strip.background=element_rect(fill=NA, color=NA))+guides(color=guide_legend(override.aes=list(size=2)))
+
+tiff("~/plot.tiff", units="in", width=11, height=13, res=200)
+grid.arrange(a,b,c, heights=c(2,1.3,2))
 dev.off()
+
+
 

@@ -1,51 +1,78 @@
 library(data.table)
 library(ggplot2)
-library(grid)
 library(gridExtra)
 
-#Panel D - boxplot of a gene significant only in single nucleus data?
-bulkcpm=fread("../snrna/cpms/bulk_cpm.tab")
-pbulkcpm=fread("../snrna/cpms/pbulk_cpm.tab")
-t2acpm=fread("../snrna/cpms/t2a_cpm.tab")
-t2xcpm=fread("../snrna/cpms/t2x_cpm.tab")
-bulkcpm$`Cell type`=rep("Bulk", nrow(bulkcpm))
-pbulkcpm$`Cell type`=rep("Pseudobulk", nrow(pbulkcpm))
-t2acpm$`Cell type`=rep("Type 2a", nrow(t2acpm))
-t2xcpm$`Cell type`=rep("Type 2x", nrow(t2xcpm))
-pheno=fread("/net/snowwhite/home/aujackso/snRNAsnATAC_paper1/data/tissue.csv")
 
-#Panel E - boxplot of a gene discordant from single nucleus to bulk
-msccpm=fread("../snrna/cpms/msc_cpm.tab")
-sccpm=fread("../snrna/cpms/sc_cpm.tab")
-msccpm$`Cell type`=rep("Fibro-adipogenic\nprogenitor", nrow(msccpm))
-sccpm$`Cell type`=rep("Satellite", nrow(sccpm))
-msccol=grep("ENSG00000145012", colnames(msccpm))
-sccol=grep("ENSG00000145012", colnames(sccpm))
-t2acol=grep("ENSG00000145012", colnames(t2acpm))
-t2xcol=grep("ENSG00000145012", colnames(t2xcpm))
-pcol=grep("ENSG00000145012", colnames(pbulkcpm))
-fiber=rbind(as.data.frame(msccpm)[,c(38001,msccol,38002)], as.data.frame(sccpm)[,c(32500,sccol,32501)], as.data.frame(pbulkcpm)[,c(58963,pcol,58964)], as.data.frame(t2acpm)[,c(41438,t2acol,41439)], as.data.frame(t2xcpm)[,c(40528,t2xcol,40529)])
-colnames(fiber)[2]="ENSG00000145012"
-cpm=rbind(fiber, bulkcpm[,c("labelcode","ENSG00000145012","Cell type")])
-cpm=merge(cpm, pheno[,c("labelcode","SEX")], by="labelcode")
+celltypes=c("Endothelial","Macrophage","Mesenchymal_Stem_Cell","Neuromuscular_junction","Neuronal","Satellite_Cell","Smooth_Muscle","Type_1","Type_2a","Type_2x")
+cellorder=gsub("_"," ", celltypes)
 
-cpm$pval=rep(1, nrow(cpm))
-cpm$pval[which(cpm$`Cell type`=="Type 2a")]="p=5x10-4"
-cpm$pval[which(cpm$`Cell type`=="Type 2x")]="p=2x10-7"
-cpm$pval[which(cpm$`Cell type`=="Fibro-adipogenic\nprogenitor")]="p=1x10-5"
-cpm$pval[which(cpm$`Cell type`=="Satellite")]="p=3x10-6"
-cpm$pval[which(cpm$`Cell type`=="Pseudobulk")]="0.15"
-cpm$pval[which(cpm$`Cell type`=="Bulk")]="p=4x10-7"
-cpm$facet=paste(cpm$`Cell type`, cpm$pval, sep="\n")
+for (c1 in celltypes[9]){
+res1=fread(paste("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/final_drop10nuc/results/",c1,".SEX.M.results.tab", sep=""))
+res1=res1[which(res1$chrom!="chrY"),]
+res1$fdr=p.adjust(res1$pvalue, method="fdr")
+res1$r1sig=as.numeric(res1$fdr<0.05)
+res1$log10p=-log10(res1$pvalue)
+res1$log10p[which(res1$log2FoldChange<0)]=-res1$log10p[which(res1$log2FoldChange<0)]
 
-cpm$facet=factor(cpm$facet, levels=c("Type 2a\np=5x10-4", "Type 2x\np=2x10-7","Fibro-adipogenic\nprogenitor\np=1x10-5", "Satellite\np=3x10-6","Pseudobulk\n0.15","Bulk\np=4x10-7"))
+res1=res1[,c("gene","gene_name","chrom","log10p","r1sig")]
+colnames(res1)=c("gene","gene_name","chrom","FC_1","r1sig")
+res1$Chromosome=rep("Autosomal", nrow(res1))
+res1$Chromosome[which(res1$chrom=="chrX")]="X"
 
-tiff("~/plot.tiff", height=140, width=180, units="mm", res=300)
-ggplot(cpm, aes(color=SEX,x=SEX, y=ENSG00000145012))+theme_bw()+geom_boxplot(fill=NA, outlier.shape=NA)+geom_jitter(size=0.05)+facet_wrap(.~facet, scales="free", nrow=1)+scale_color_manual(values=c("#e41a1c","#377eb8"))+theme(strip.background=element_rect(color=NA, fill=NA), axis.text.y=element_text(size=6, angle=45), axis.text.x=element_text(size=6),panel.spacing.x=unit(0,"in"),strip.text=element_text(size=7), legend.position="none", axis.title=element_blank(), plot.title=element_text(face="italic"), plot.margin=unit(c(0.07,0.07,0.07,0), "in"))
+res2=NULL
+
+for (c2 in celltypes){
+	if (c2!=c1){
+		res_c2=fread(paste("/net/snowwhite/home/aujackso/sn_muscle_2023/output/DESeq.RNA/final_drop10nuc/results/",c2,".SEX.M.results.tab", sep=""))
+		res_c2$fdr=p.adjust(res_c2$pvalue, method="fdr")
+		res_c2$r2sig=as.numeric(res_c2$fdr<0.05)
+		res_c2$log10p=-log10(res_c2$pvalue)
+		res_c2$log10p[which(res_c2$log2FoldChange<0)]=-res_c2$log10p[which(res_c2$log2FoldChange<0)]
+		res_c2=res_c2[,c("gene","log10p","cell","r2sig")]
+		colnames(res_c2)=c("gene","FC_2","cell","r2sig")
+		both=merge(res1[,c("gene","FC_1","r1sig","Chromosome")], res_c2[,c("gene","FC_2","r2sig")], by="gene")
+		both=both[which(both$r1sig==1 & both$r2sig==1),]
+		concordance=(sum(both$FC_1>0 & both$FC_2>0)+sum(both$FC_1<0 & both$FC_2<0))/nrow(both)
+		res_c2$Concordance=rep(round(concordance, digits=2),nrow(res_c2))
+		aut=both[which(both$Chromosome!="X" & both$Chromosome!="Y"),]
+		autc=(sum(aut$FC_1>0 & aut$FC_2>0)+sum(aut$FC_1<0 & aut$FC_2<0))/nrow(aut)
+		res_c2$AutConcordance=rep(round(autc, digits=2), nrow(res_c2))
+		res2=rbind(res2, res_c2)
+	}
+}
+res2$cell=gsub("_"," ", res2$cell)
+res2$cell=factor(res2$cell, levels=cellorder)
+res=merge(res1, res2, by="gene")		
+res$Significance=rep("Neither", nrow(res))
+res$Significance[which(res$r1sig+res$r2sig==2)]="Both"
+res$Significance[which(res$r1sig==1 & res$r2sig==0)]=paste(gsub("_"," ",c1),"only",sep=" ")
+res$Significance[which(res$r1sig==0 & res$r2sig==1)]="Other cell type only"
+res$Significance=factor(res$Significance, levels=c("Both",paste(gsub("_"," ",c1),"only",sep=" "),"Other cell type only","Neither"))
+
+res$Concordance=as.character(res$Concordance)
+res$Concordance[which(res$Concordance==1)]="1.00"
+res$Concordance[which(res$Concordance==0.90)]="0.90"
+res$Concordance[which(res$Concordance==NaN)]=" "
+res$AutConcordance=as.character(res$AutConcordance)
+res$AutConcordance[which(res$AutConcordance==1)]="1.00"
+res$AutConcordance[which(res$AutConcordance==0.8)]="0.80"
+res$AutConcordance[which(res$AutConcordance==0.9)]="0.90"
+res$AutConcordance[which(res$AutConcordance==NaN)]=" "
+res$Concordance=paste("All:\n", res$Concordance, sep="")
+res$AutConcordance=paste("Autosomal:\n", res$AutConcordance, sep="")
+res$Concordance[which(res$Concordance=="All:\n ")]=" "
+res$AutConcordance[which(res$AutConcordance=="Autosomal:\n ")]=" "
+
+cellname=gsub("_"," ",c1)
+breaks=c(-100,-50,0,50,100)
+labels=c("-100","-50","0","50","100")
+
+res$cell=as.character(res$cell)
+res$cell[which(res$cell=="Mesenchymal Stem Cell")]="Fibro-adipogenic progenitor"
+
+
+tiff("~/plot.tiff", units="mm", width=160, height=180, res=300)
+print(ggplot(res, aes(x=FC_1, y=FC_2, shape=Chromosome))+facet_wrap(cell~.,strip.position="left",nrow=3)+ggtitle(gsub("_"," ",c1))+ylab("Signed -log10 p-value:")+geom_point(aes(color=Significance,size=Chromosome))+geom_text(aes(label=Concordance,y=-90,x=100),hjust=1,size=2,check_overlap=TRUE)+geom_text(aes(label=AutConcordance, y=-45, x=100), hjust=1, size=2,check_overlap=TRUE)+theme_bw()+xlab(paste("Signed -log10 p-value: ",cellname))+scale_x_continuous(breaks=breaks, labels=labels,limits=c(-1e+02,1e+02))+scale_y_continuous(labels=labels,breaks=breaks, limits=c(-1e+02,1e+02))+theme(plot.title=element_text(size=7),legend.title=element_text(size=7),strip.placement="outside",legend.position="bottom",axis.text=element_text(size=7),strip.text=element_text(size=7),strip.background=element_rect(fill="white",color=NA), legend.text=element_text(size=7),axis.title=element_text(size=7))+geom_hline(yintercept=0, linetype="dotted")+geom_vline(xintercept=0, linetype="dotted")+geom_abline(intercept=0, slope=1, linetype="dotted")+scale_shape_manual(values=c(16,17,18))+scale_size_manual(values=c(0.8,1.2,1.5))+scale_color_manual(values=c("#ff7f00","#984ea3","#1b9e77","#bdbdbd"))+guides(color=guide_legend(nrow=4, title.position="top"),shape=guide_legend(nrow=3, override.aes=list(size=2), title.position="top")))
 dev.off()
-
-
-
-
-
+}
 
